@@ -1,5 +1,11 @@
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import java.io.BufferedReader
+import java.io.File
 import java.io.FileReader
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.system.measureTimeMillis
 
 inline class DocumentID(val id: Int): Comparable<DocumentID> {
     override fun compareTo(other: DocumentID) =
@@ -40,8 +46,11 @@ data class DictionaryEntry(val key: String, val counts: ArrayList<WordCount>): C
 
 }
 
-class Dictionary: Iterable<DictionaryEntry>{
-    val entries = ArrayList<DictionaryEntry>()
+class Dictionary: Iterable<DictionaryEntry> {
+    private val entries = ArrayList<DictionaryEntry>()
+    private val requestQueue: ArrayBlockingQueue<InsertionRequest> by lazy {
+        ArrayBlockingQueue<InsertionRequest>(1000)
+    }
 
     fun add(word: String, from: DocumentID) {
         val insertionPoint = entries.binarySearch { word.compareTo(it.key) }
@@ -50,7 +59,60 @@ class Dictionary: Iterable<DictionaryEntry>{
             val count = counts.find { it.document == from }
             if (count == null) counts.add(WordCount(from))
             else count.count++
-        } else entries.insert(DictionaryEntry(word, from), -insertionPoint-1)
+        } else entries.insert(DictionaryEntry(word, from), -insertionPoint - 1)
+    }
+
+    fun addParallel(from: Collection<File>) {
+        val done = AtomicInteger(0)
+        val tasks = from.mapIndexed { idx, file ->
+            GlobalScope.launch(Dispatchers.IO) {
+                val br = BufferedReader(FileReader(file))
+                br.lineSequence()
+                    .flatMap { it.split(Regex("\\W+")).asSequence() }
+                    .filter  { it.isNotBlank() }
+                    .map     { it.toLowerCase() }
+                    .forEach {
+                        requestQueue.put(InsertionRequest(it, DocumentID(idx)))
+                    }
+                done.incrementAndGet()
+            }
+        }
+        runConsumer { done.compareAndSet(from.size, done.get()) }
+        runBlocking { tasks.forEach { it.join() } }
+    }
+
+
+    @ExperimentalCoroutinesApi
+    suspend fun addSuspending(from: List<File>) {
+        val channel = Channel<InsertionRequest>(1000)
+        for ((idx, file) in from.withIndex()) {
+            GlobalScope.launch(Dispatchers.IO) {
+                val br = BufferedReader(FileReader(file))
+                br.lineSequence()
+                    .flatMap { it.split(Regex("\\W+")).asSequence() }
+                    .filter  { it.isNotBlank() }
+                    .map     { it.toLowerCase() }
+                    .forEach {
+                        channel.send(InsertionRequest(it, DocumentID(idx)))
+                    }
+                channel.send(InsertionRequest(null, DocumentID(idx)))
+            }
+        }
+        var count = from.size
+        while (count > 0) {
+            val (word, document) = channel.receive()
+            if (word != null) add(word, document)
+            else count--
+        }
+    }
+
+    fun runConsumer(until: () -> Boolean) {
+        while(!until()) {
+            if (requestQueue.isNotEmpty()) {
+                val (word, from) = requestQueue.poll()
+                add(word!!, from)
+            }
+        }
     }
 
     override fun toString(): String {
@@ -59,15 +121,52 @@ class Dictionary: Iterable<DictionaryEntry>{
 
     override fun iterator() = entries.iterator()
 
+    companion object {
+        data class InsertionRequest(val word: String?, val from: DocumentID)
+    }
+
 }
 
+fun getFiles(path: String, extension: String? = null): List<File> {
+    val directory = File(path)
+    if (!directory.exists() && !directory.isDirectory) return emptyList()
+    val files = directory.list { dir, name ->
+        val file = File(dir, name)
+        file.exists() && file.isFile && (extension == null || file.extension == extension)
+    } ?: emptyArray()
+    return files.map { File(directory, it) }
+}
+
+@ExperimentalCoroutinesApi
 fun main() {
-    val br = BufferedReader(FileReader("dict.txt"))
-    val dict = Dictionary()
-    br.lineSequence()
-        .flatMap { it.split(Regex("\\W+")).asSequence() }
-        .filter  { it.isNotBlank() }
-        .map     { it.toLowerCase() }
-        .forEach { dict.add(it, DocumentID(0)) }
-    dict.forEach { println(it) }
+    val suspendDict = Dictionary()
+    val suspendTime = measureTimeMillis {
+        runBlocking {
+            suspendDict.addSuspending(getFiles(("input")))
+        }
+    }
+    println("suspend")
+
+    val parallelDict = Dictionary()
+    val parallelTime = measureTimeMillis {
+        parallelDict.addParallel(getFiles("input"))
+    }
+    println("parallel")
+
+    val syncDict = Dictionary()
+    val syncTime = measureTimeMillis {
+        for (file in getFiles("input")) {
+            val br = BufferedReader(FileReader(file))
+            br.lineSequence()
+                .flatMap { it.split(Regex("\\W+")).asSequence() }
+                .filter  { it.isNotBlank() }
+                .map     { it.toLowerCase() }
+                .forEach { syncDict.add(it, DocumentID(0)) }
+            br.close()
+        }
+    }
+
+    val parallelRatio = (syncTime.toDouble() / parallelTime).round(2)
+    val suspendRatio  = (syncTime.toDouble() / suspendTime).round(2)
+    println("Parallel: $parallelTime ($parallelRatio x), Suspending $suspendTime ($suspendRatio x), Synchronous: $syncTime")
 }
