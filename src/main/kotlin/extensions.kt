@@ -36,6 +36,21 @@ fun <T> ArrayList<T>.insert(value: T, idx: Int) {
     add(current)
 }
 
+fun <T> Array<T>.binarySearch(fromIndex: Int = 0, toIndex: Int = this.size, comparison: (T) -> Int): Int {
+    var lo = fromIndex
+    var hi = toIndex
+    while (lo <= hi) {
+        val mid = (lo + hi)/2;
+        val cmp = comparison(this[mid])
+        when {
+            cmp > 0 -> { hi = mid - 1 }
+            cmp < 0 -> { lo = mid + 1}
+            else -> return mid
+        }
+    }
+    return -lo-1
+}
+
 fun <T:Comparable<T>> ArrayList<T>.insertSorted(value: T) =
     insert(value, findSorted(value))
 
