@@ -1,11 +1,16 @@
-class ArrayMap<K : Comparable<K>, V>(capacity: Int = 10, private val multiplier: Float = 2f): Iterable<ArrayMap.Container<K,V>> {
+import kotlinx.serialization.Serializable
+
+//TODO: Write custom serializer
+@Serializable
+class ArrayMap<K : Comparable<K>, V>(private val initialCapacity: Int = 10, private val multiplier: Float = 2f): Iterable<ArrayMap.Container<K,V>> {
     val size: Int get() = _size
+    val capacity: Int get() = arr.size
 
     private var arr: Array<Container<K, V>?>
     private var _size = 0
 
     init {
-        arr = Array(capacity) { null }
+        arr = Array(initialCapacity) { null }
     }
 
     fun put(key: K, value: V) {
@@ -87,6 +92,7 @@ class ArrayMap<K : Comparable<K>, V>(capacity: Int = 10, private val multiplier:
     private fun insertionIndex(key: K) =
         arr.binarySearch(0, size-1) { key.compareTo(it!!.key) }
 
+    @Serializable
     data class Container<K : Comparable<K>, V>(val key: K, var value: V) : Comparable<K> {
         override fun compareTo(other: K) = key.compareTo(other)
     }

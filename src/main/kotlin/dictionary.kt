@@ -1,18 +1,27 @@
+import javafx.application.Platform
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileReader
+import java.io.FileWriter
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.system.measureTimeMillis
+import kotlinx.serialization.*
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonConfiguration
 
-inline class DocumentID(val id: Int) : Comparable<DocumentID> {
+//TODO: Return inline classes and make them serializable
+@Serializable
+data class DocumentID(val id: Int) : Comparable<DocumentID> {
     override fun compareTo(other: DocumentID) =
         id.compareTo(other.id)
 }
 
-inline class DictionaryEntry(val counts: ArrayMap<DocumentID, Int> = ArrayMap()) {
+//TODO: Return inline classes and make them serializable
+@Serializable
+data class DictionaryEntry(val counts: ArrayMap<DocumentID, Int> = ArrayMap()) {
     override fun toString(): String {
         return buildString {
             append("DictionaryEntry(counts=[")
@@ -26,18 +35,25 @@ inline class DictionaryEntry(val counts: ArrayMap<DocumentID, Int> = ArrayMap())
     }
 }
 
+@Serializable
 class Dictionary : Iterable<Dictionary.Companion.WordWithEntry> {
     private val entries = ArrayMap<String, DictionaryEntry>()
     private val requestQueue: ArrayBlockingQueue<InsertionRequest> by lazy {
         ArrayBlockingQueue<InsertionRequest>(1000)
     }
+    private var _total = 0
+    private var _unique = 0
 
-    private val newDictFactory = { DictionaryEntry() }
-    private val increment: (Int) -> Int = { it + 1}
-    private val newCountFactory = { 0 }
+    val totalWords: Int get() = _total
+    val uniqueWords: Int get() = _unique
+
     fun add(word: String, document: DocumentID) {
-        val entry = entries.getOrSet(word, newDictFactory)
-        entry.counts.mutateOrSet(document, increment, newCountFactory)
+        _total++
+        val entry = entries.getOrSet(word) {
+            _unique++
+            DictionaryEntry()
+        }
+        entry.counts.mutateOrSet(document, { it + 1 }, { 0 })
     }
 
     fun addParallel(from: Collection<File>) {
@@ -116,6 +132,7 @@ fun getFiles(path: String, extension: String? = null): List<File> {
     return files.map { File(directory, it) }
 }
 
+@UnstableDefault
 @ExperimentalCoroutinesApi
 fun main() {
 //    val suspendDict = Dictionary()
@@ -145,9 +162,19 @@ fun main() {
         }
     }
 
-    syncDict.forEach {
-        println(it)
-    }
+    syncDict.forEach { println(it) }
+
+    val out = FileWriter("out.json")
+    val json = Json(JsonConfiguration.Stable)
+    val strData = Json.stringify(Dictionary.serializer(), syncDict)
+    out.write(strData)
+    out.close()
+
+    val runtime = Runtime.getRuntime()
+    val memoryUsage = runtime.totalMemory() - runtime.freeMemory()
+    val total = syncDict.totalWords
+    val unique = syncDict.uniqueWords
+    println("Took $syncTime ms to index. Total words: $total, unique: $unique. Memory usage: $memoryUsage")
 
 //    val parallelRatio = (syncTime.toDouble() / parallelTime).round(2)
 //    val suspendRatio = (syncTime.toDouble() / suspendTime).round(2)
