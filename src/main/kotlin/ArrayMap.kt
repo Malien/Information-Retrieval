@@ -1,17 +1,20 @@
-import kotlinx.serialization.Serializable
+import kotlinx.serialization.*
+import kotlinx.serialization.internal.ArrayClassDesc
 
 //TODO: Write custom serializer
-@Serializable
-class ArrayMap<K : Comparable<K>, V>(private val initialCapacity: Int = 10, private val multiplier: Float = 2f): Iterable<ArrayMap.Container<K,V>> {
+//TODO: remove initialCapacity from object values
+@Serializable(with = ArrayMap.ArraySerializer::class)
+class ArrayMap<K : Comparable<K>,V>(private val initialCapacity: Int = 10, private val multiplier: Float = 2f): Iterable<ArrayMap.Container<K,V>> {
     val size: Int get() = _size
     val capacity: Int get() = arr.size
 
-    private var arr: Array<Container<K, V>?>
-    private var _size = 0
-
-    init {
-        arr = Array(initialCapacity) { null }
+    private constructor(arr: Array<Container<K, V>?>, size: Int = arr.size): this (0, 2f) {
+        _size = size
+        this.arr = arr
     }
+
+    private var arr: Array<Container<K, V>?> = arrayOfNulls(initialCapacity)
+    private var _size = 0
 
     fun put(key: K, value: V) {
         val idx = insertionIndex(key)
@@ -95,5 +98,33 @@ class ArrayMap<K : Comparable<K>, V>(private val initialCapacity: Int = 10, priv
     @Serializable
     data class Container<K : Comparable<K>, V>(val key: K, var value: V) : Comparable<K> {
         override fun compareTo(other: K) = key.compareTo(other)
+    }
+
+    @Serializer(forClass = ArrayMap::class)
+    class ArraySerializer<K:Comparable<K>,V>(keySerializer: KSerializer<K>,
+                                             valueSerializer: KSerializer<V>): KSerializer<ArrayMap<K,V>> {
+        private val containerSerializer = Container.serializer(keySerializer, valueSerializer)
+
+        override val descriptor: SerialDescriptor = ArrayClassDesc(containerSerializer.descriptor)
+
+        override fun deserialize(decoder: Decoder): ArrayMap<K, V> {
+            val collection = decoder.beginStructure(descriptor)
+            val list = ArrayList<Container<K,V>?>()
+            while (true) {
+                val i = collection.decodeElementIndex(descriptor)
+                if (i == CompositeDecoder.READ_DONE) break
+                list.add(collection.decodeSerializableElement(descriptor, i, containerSerializer))
+            }
+            collection.endStructure(descriptor)
+            return ArrayMap(list.toTypedArray())
+        }
+
+        override fun serialize(encoder: Encoder, obj: ArrayMap<K, V>) {
+            val collection = encoder.beginCollection(descriptor, obj.size)
+            for ((idx, container) in obj.withIndex()) {
+                collection.encodeSerializableElement(descriptor, idx, containerSerializer, container)
+            }
+            collection.endStructure(descriptor)
+        }
     }
 }

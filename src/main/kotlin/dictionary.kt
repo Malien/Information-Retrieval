@@ -1,4 +1,3 @@
-import javafx.application.Platform
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import java.io.BufferedReader
@@ -9,6 +8,7 @@ import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.system.measureTimeMillis
 import kotlinx.serialization.*
+import kotlinx.serialization.internal.IntDescriptor
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonConfiguration
 
@@ -17,13 +17,24 @@ import kotlinx.serialization.json.JsonConfiguration
 data class DocumentID(val id: Int) : Comparable<DocumentID> {
     override fun compareTo(other: DocumentID) =
         id.compareTo(other.id)
+
+    @Serializer(forClass = DocumentID::class)
+    companion object: KSerializer<DocumentID> {
+        override val descriptor: SerialDescriptor =
+            IntDescriptor.withName("id")
+        override fun deserialize(decoder: Decoder) =
+            DocumentID(decoder.decodeInt())
+        override fun serialize(encoder: Encoder, obj: DocumentID) {
+            encoder.encodeInt(obj.id)
+        }
+    }
 }
 
 //TODO: Return inline classes and make them serializable
 @Serializable
 data class DictionaryEntry(val counts: ArrayMap<DocumentID, Int> = ArrayMap()) {
-    override fun toString(): String {
-        return buildString {
+    override fun toString() =
+        buildString {
             append("DictionaryEntry(counts=[")
             for ((document, count) in counts) {
                 append(document)
@@ -31,6 +42,15 @@ data class DictionaryEntry(val counts: ArrayMap<DocumentID, Int> = ArrayMap()) {
                 append(count)
             }
             append("])")
+        }
+
+    companion object: KSerializer<DictionaryEntry> {
+        private val serializer = ArrayMap.serializer(DocumentID.serializer(), Int.serializer())
+        override val descriptor: SerialDescriptor = serializer.descriptor
+        override fun deserialize(decoder: Decoder) =
+            DictionaryEntry(decoder.decodeSerializableValue(serializer))
+        override fun serialize(encoder: Encoder, obj: DictionaryEntry) {
+            encoder.encodeSerializableValue(serializer, obj.counts)
         }
     }
 }
@@ -162,13 +182,25 @@ fun main() {
         }
     }
 
-    syncDict.forEach { println(it) }
+//    syncDict.forEach { println(it) }
 
     val out = FileWriter("out.json")
     val json = Json(JsonConfiguration.Stable)
     val strData = Json.stringify(Dictionary.serializer(), syncDict)
     out.write(strData)
     out.close()
+
+    val buffer = CharArray(4096)
+    val input = FileReader("out.json")
+    val string = buildString {
+        while (true) {
+            val charsRead = input.read(buffer)
+            if (charsRead == -1) break
+            append(buffer, 0, charsRead)
+        }
+    }
+    val dict = Json.parse(Dictionary.serializer(), string)
+    dict.forEach{ println(it) }
 
     val runtime = Runtime.getRuntime()
     val memoryUsage = runtime.totalMemory() - runtime.freeMemory()
