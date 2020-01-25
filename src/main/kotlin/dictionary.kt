@@ -44,6 +44,7 @@ data class DictionaryEntry(val counts: ArrayMap<DocumentID, Int> = ArrayMap()) {
             append("])")
         }
 
+    @Serializer(forClass = DictionaryEntry::class)
     companion object: KSerializer<DictionaryEntry> {
         private val serializer = ArrayMap.serializer(DocumentID.serializer(), Int.serializer())
         override val descriptor: SerialDescriptor = serializer.descriptor

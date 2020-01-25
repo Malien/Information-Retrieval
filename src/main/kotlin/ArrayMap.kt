@@ -1,10 +1,8 @@
 import kotlinx.serialization.*
 import kotlinx.serialization.internal.ArrayClassDesc
 
-//TODO: Write custom serializer
-//TODO: remove initialCapacity from object values
 @Serializable(with = ArrayMap.ArraySerializer::class)
-class ArrayMap<K : Comparable<K>,V>(private val initialCapacity: Int = 10, private val multiplier: Float = 2f): Iterable<ArrayMap.Container<K,V>> {
+class ArrayMap<K : Comparable<K>,V>(initialCapacity: Int = 10, private val multiplier: Float = 2f): Iterable<ArrayMap.Container<K,V>> {
     val size: Int get() = _size
     val capacity: Int get() = arr.size
 
