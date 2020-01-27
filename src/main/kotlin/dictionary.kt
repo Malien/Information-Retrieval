@@ -155,9 +155,13 @@ fun getFiles(path: String, extension: String? = null): List<File> {
 @UnstableDefault
 @ExperimentalCoroutinesApi
 fun main() {
+    val files = getFiles("input", "txt")
+    val size = files.asSequence()
+        .map { it.length() }
+        .sum()
     val syncDict = Dictionary()
     val syncTime = measureTimeMillis {
-        for (file in getFiles("input")) {
+        for (file in files) {
             val br = BufferedReader(FileReader(file))
             br.lineSequence()
                 .flatMap { it.split(Regex("\\W+")).asSequence() }
@@ -189,5 +193,7 @@ fun main() {
     val memoryUsage = runtime.totalMemory() - runtime.freeMemory()
     val total = syncDict.totalWords
     val unique = syncDict.uniqueWords
-    println("Took $syncTime ms to index. Total words: $total, unique: $unique. Memory usage: $memoryUsage")
+    val count = files.size
+    val mbs = (size / 1024.0 / 1024).round(2)
+    println("Indexed $count files ($mbs MB total). Took $syncTime ms to index. Total words: $total, unique: $unique. Memory usage: $memoryUsage.")
 }
