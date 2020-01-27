@@ -152,14 +152,31 @@ fun getFiles(path: String, extension: String? = null): List<File> {
     return files.map { File(directory, it) }
 }
 
+val boolArguments = hashSetOf("i", "interactive", "s", "sequential")
+val stringArguments = hashMapOf<String, String?>("execute" to null)
+
 @UnstableDefault
 @ExperimentalCoroutinesApi
-fun main() {
-    val files = getFiles("input", "txt")
+fun main(args: Array<String>) {
+    val parsed = Arguments(DefaultArguments(booleans = boolArguments, strings = stringArguments), args)
+
+    val files = parsed.unspecified.asSequence()
+        .map { File(it) }
+        .filter {
+            if (!it.exists()) {
+                System.err.println("$it does not exist")
+                false
+            } else if (!it.isFile) {
+                System.err.println("$it is not a file")
+                false
+            } else true
+        }
+        .toList()
     val size = files.asSequence()
         .map { it.length() }
         .sum()
-    val syncDict = Dictionary()
+
+    val dict = Dictionary()
     val syncTime = measureTimeMillis {
         for (file in files) {
             val br = BufferedReader(FileReader(file))
@@ -167,13 +184,13 @@ fun main() {
                 .flatMap { it.split(Regex("\\W+")).asSequence() }
                 .filter { it.isNotBlank() }
                 .map { it.toLowerCase() }
-                .forEach { syncDict.add(it, DocumentID(0)) }
+                .forEach { dict.add(it, DocumentID(0)) }
             br.close()
         }
     }
 
     val out = FileWriter("out.json")
-    val strData = Json.stringify(Dictionary.serializer(), syncDict)
+    val strData = Json.stringify(Dictionary.serializer(), dict)
     out.write(strData)
     out.close()
 
@@ -186,14 +203,17 @@ fun main() {
             append(buffer, 0, charsRead)
         }
     }
-    val dict = Json.parse(Dictionary.serializer(), string)
-    dict.forEach{ println(it) }
+    val diskDict = Json.parse(Dictionary.serializer(), string)
+    diskDict.forEach{ println(it) }
 
     val runtime = Runtime.getRuntime()
-    val memoryUsage = runtime.totalMemory() - runtime.freeMemory()
-    val total = syncDict.totalWords
-    val unique = syncDict.uniqueWords
-    val count = files.size
-    val mbs = (size / 1024.0 / 1024).round(2)
-    println("Indexed $count files ($mbs MB total). Took $syncTime ms to index. Total words: $total, unique: $unique. Memory usage: $memoryUsage.")
+    val memoryUsage = (runtime.totalMemory() - runtime.freeMemory()).megabytes
+    val total = dict.totalWords
+    val unique = dict.uniqueWords
+    val count = files.count()
+    val mbs = size.megabytes
+    println("Indexed $count files ($mbs MB total). " +
+            "Took $syncTime ms to index. " +
+            "Total words: $total, unique: $unique. " +
+            "Memory usage: $memoryUsage MB.")
 }

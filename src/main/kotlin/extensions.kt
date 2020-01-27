@@ -47,7 +47,7 @@ fun <T> Array<T>.binarySearch(fromIndex: Int = 0, toIndex: Int = this.size, comp
     var lo = fromIndex
     var hi = toIndex
     while (lo <= hi) {
-        val mid = (lo + hi)/2;
+        val mid = (lo + hi)/2
         val cmp = comparison(this[mid])
         when {
             cmp > 0 -> { hi = mid - 1 }
@@ -82,3 +82,5 @@ val is64bit: Boolean get() =
     } else {
         System.getProperty("os.arch").indexOf("64") != -1
     }
+
+val Long.megabytes get() = (this / 1024 / 1024.0).round(2)
