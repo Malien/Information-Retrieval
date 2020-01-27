@@ -1,15 +1,12 @@
-import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.Channel
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileReader
 import java.io.FileWriter
-import java.util.concurrent.ArrayBlockingQueue
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.system.measureTimeMillis
 import kotlinx.serialization.*
 import kotlinx.serialization.internal.IntDescriptor
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonConfiguration
 
 //TODO: Return inline classes and make them serializable
 @Serializable
@@ -58,9 +55,6 @@ data class DictionaryEntry(val counts: ArrayMap<DocumentID, Int> = ArrayMap()) {
 @Serializable
 class Dictionary : Iterable<Dictionary.Companion.WordWithEntry> {
     private val entries = ArrayMap<String, DictionaryEntry>()
-    private val requestQueue: ArrayBlockingQueue<InsertionRequest> by lazy {
-        ArrayBlockingQueue<InsertionRequest>(1000)
-    }
     private var _total = 0
     private var _unique = 0
 
@@ -84,7 +78,6 @@ class Dictionary : Iterable<Dictionary.Companion.WordWithEntry> {
         entries.iterator().asSequence().map { (word, entry) -> WordWithEntry(word, entry) }.iterator()
 
     companion object {
-        data class InsertionRequest(val word: String?, val from: DocumentID)
         data class WordWithEntry(val word: String, val entry: DictionaryEntry)
     }
 
@@ -93,8 +86,6 @@ class Dictionary : Iterable<Dictionary.Companion.WordWithEntry> {
 val boolArguments = hashSetOf("i", "interactive", "s", "sequential")
 val stringArguments = hashMapOf<String, String?>("execute" to null)
 
-@UnstableDefault
-@ExperimentalCoroutinesApi
 fun main(args: Array<String>) {
     val parsed = Arguments(DefaultArguments(booleans = boolArguments, strings = stringArguments), args)
 
@@ -128,7 +119,8 @@ fun main(args: Array<String>) {
     }
 
     val out = FileWriter("out.json")
-    val strData = Json.stringify(Dictionary.serializer(), dict)
+    val JSON = Json(JsonConfiguration.Stable)
+    val strData = JSON.stringify(Dictionary.serializer(), dict)
     out.write(strData)
     out.close()
 
@@ -141,7 +133,7 @@ fun main(args: Array<String>) {
             append(buffer, 0, charsRead)
         }
     }
-    val diskDict = Json.parse(Dictionary.serializer(), string)
+    val diskDict = JSON.parse(Dictionary.serializer(), string)
     diskDict.forEach{ println(it) }
 
     val runtime = Runtime.getRuntime()
