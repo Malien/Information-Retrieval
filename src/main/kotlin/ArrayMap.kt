@@ -1,12 +1,16 @@
 import kotlinx.serialization.*
 import kotlinx.serialization.internal.ArrayClassDesc
+import kotlin.collections.ArrayList
 
+//TODO: Implement fully SortedMap interface just for LOLz
 @Serializable(with = ArrayMap.ArraySerializer::class)
-class ArrayMap<K : Comparable<K>,V>(initialCapacity: Int = 10, private val multiplier: Float = 2f): Iterable<ArrayMap.Container<K,V>> {
+class ArrayMap<K : Comparable<K>, V>(
+    initialCapacity: Int = 10,
+    private val multiplier: Float = 2f
+) : Iterable<ArrayMap.Container<K, V>>/*, SortedMap<K, V> */ {
     val size: Int get() = _size
-    val capacity: Int get() = arr.size
 
-    private constructor(arr: Array<Container<K, V>?>, size: Int = arr.size): this (0, 2f) {
+    private constructor(arr: Array<Container<K, V>?>, size: Int = arr.size) : this(0, 2f) {
         _size = size
         this.arr = arr
     }
@@ -14,26 +18,26 @@ class ArrayMap<K : Comparable<K>,V>(initialCapacity: Int = 10, private val multi
     private var arr: Array<Container<K, V>?> = arrayOfNulls(initialCapacity)
     private var _size = 0
 
-    fun put(key: K, value: V) {
+    fun put(key: K, value: V): V? {
         val idx = insertionIndex(key)
-        if (idx >= 0) arr[idx]!!.value = value
-        else add(Container(key, value), -idx-1)
+        return if (idx >= 0) {
+            val prev = arr[idx]
+            arr[idx]!!.value = value
+            prev?.value
+        } else {
+            add(Container(key, value), -idx - 1)
+            null
+        }
     }
 
     fun exists(key: K) = insertionIndex(key) >= 0
-
-    fun ifPresent(key: K, callback: (V) -> Unit, `else`: (() -> Unit)? = null) {
-        val idx = insertionIndex(key)
-        if (idx >= 0) callback(arr[idx]!!.value)
-        else if(`else` != null) `else`()
-    }
 
     fun getOrSet(key: K, factory: () -> V): V {
         val idx = insertionIndex(key)
         return if (idx >= 0) arr[idx]!!.value
         else {
             val value = factory()
-            add(Container(key, value), -idx-1)
+            add(Container(key, value), -idx - 1)
             value
         }
     }
@@ -46,7 +50,7 @@ class ArrayMap<K : Comparable<K>,V>(initialCapacity: Int = 10, private val multi
             value
         } else {
             val value = transform(factory())
-            add(Container(key, value), -idx-1)
+            add(Container(key, value), -idx - 1)
             value
         }
     }
@@ -56,28 +60,32 @@ class ArrayMap<K : Comparable<K>,V>(initialCapacity: Int = 10, private val multi
         return if (idx >= 0) arr[idx]!!.value else null
     }
 
-    override fun iterator() = object: Iterator<Container<K,V>> {
+    override fun iterator() = object : Iterator<Container<K, V>> {
         var idx = 0
         override fun hasNext() = idx < size
         override fun next() = arr[idx++]!!
     }
 
-    fun keys() = Iterable { object: Iterator<K> {
-        var idx = 0
-        override fun hasNext() = idx < size
-        override fun next() = arr[idx++]!!.key
-    }}
+    fun keys() = Iterable {
+        object : Iterator<K> {
+            var idx = 0
+            override fun hasNext() = idx < size
+            override fun next() = arr[idx++]!!.key
+        }
+    }
 
-    fun values() = Iterable { object: Iterator<V> {
-        var idx = 0
-        override fun hasNext() = idx < size
-        override fun next() = arr[idx++]!!.value
-    }}
+    fun values() = Iterable {
+        object : Iterator<V> {
+            var idx = 0
+            override fun hasNext() = idx < size
+            override fun next() = arr[idx++]!!.value
+        }
+    }
 
     private fun add(container: Container<K, V>, idx: Int = size) {
         if (size >= arr.size) {
             val newCap = arr.size * multiplier
-            val newArr = Array<Container<K,V>?>(newCap.toInt()) {null}
+            val newArr = Array<Container<K, V>?>(newCap.toInt()) { null }
             arr.copyInto(newArr)
             arr = newArr
         }
@@ -91,7 +99,7 @@ class ArrayMap<K : Comparable<K>,V>(initialCapacity: Int = 10, private val multi
     }
 
     private fun insertionIndex(key: K) =
-        arr.binarySearch(0, size-1) { key.compareTo(it!!.key) }
+        arr.binarySearch(0, size - 1) { key.compareTo(it!!.key) }
 
     @Serializable
     data class Container<K : Comparable<K>, V>(val key: K, var value: V) : Comparable<K> {
@@ -99,15 +107,17 @@ class ArrayMap<K : Comparable<K>,V>(initialCapacity: Int = 10, private val multi
     }
 
     @Serializer(forClass = ArrayMap::class)
-    class ArraySerializer<K:Comparable<K>,V>(keySerializer: KSerializer<K>,
-                                             valueSerializer: KSerializer<V>): KSerializer<ArrayMap<K,V>> {
+    class ArraySerializer<K : Comparable<K>, V>(
+        keySerializer: KSerializer<K>,
+        valueSerializer: KSerializer<V>
+    ) : KSerializer<ArrayMap<K, V>> {
         private val containerSerializer = Container.serializer(keySerializer, valueSerializer)
 
         override val descriptor: SerialDescriptor = ArrayClassDesc(containerSerializer.descriptor)
 
         override fun deserialize(decoder: Decoder): ArrayMap<K, V> {
             val collection = decoder.beginStructure(descriptor)
-            val list = ArrayList<Container<K,V>?>()
+            val list = ArrayList<Container<K, V>?>()
             while (true) {
                 val i = collection.decodeElementIndex(descriptor)
                 if (i == CompositeDecoder.READ_DONE) break

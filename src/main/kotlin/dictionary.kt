@@ -76,58 +76,6 @@ class Dictionary : Iterable<Dictionary.Companion.WordWithEntry> {
         entry.counts.mutateOrSet(document, { it + 1 }, { 0 })
     }
 
-    fun addParallel(from: Collection<File>) {
-        val done = AtomicInteger(0)
-        val tasks = from.mapIndexed { idx, file ->
-            GlobalScope.launch(Dispatchers.IO) {
-                val br = BufferedReader(FileReader(file))
-                br.lineSequence()
-                    .flatMap { it.split(Regex("\\W+")).asSequence() }
-                    .filter { it.isNotBlank() }
-                    .map { it.toLowerCase() }
-                    .forEach {
-                        requestQueue.put(InsertionRequest(it, DocumentID(idx)))
-                    }
-                done.incrementAndGet()
-            }
-        }
-        runConsumer { done.compareAndSet(from.size, done.get()) }
-        runBlocking { tasks.forEach { it.join() } }
-    }
-
-    @ExperimentalCoroutinesApi
-    suspend fun addSuspending(from: List<File>) {
-        val channel = Channel<InsertionRequest>(1000)
-        for ((idx, file) in from.withIndex()) {
-            GlobalScope.launch(Dispatchers.IO) {
-                val br = BufferedReader(FileReader(file))
-                br.lineSequence()
-                    .flatMap { it.split(Regex("\\W+")).asSequence() }
-                    .filter { it.isNotBlank() }
-                    .map { it.toLowerCase() }
-                    .forEach {
-                        channel.send(InsertionRequest(it, DocumentID(idx)))
-                    }
-                channel.send(InsertionRequest(null, DocumentID(idx)))
-            }
-        }
-        var count = from.size
-        while (count > 0) {
-            val (word, document) = channel.receive()
-            if (word != null) add(word, document)
-            else count--
-        }
-    }
-
-    fun runConsumer(until: () -> Boolean) {
-        while (!until()) {
-            if (requestQueue.isNotEmpty()) {
-                val (word, from) = requestQueue.poll()
-                add(word!!, from)
-            }
-        }
-    }
-
     override fun toString(): String {
         return "Dictionary(entries=$entries)"
     }
@@ -140,16 +88,6 @@ class Dictionary : Iterable<Dictionary.Companion.WordWithEntry> {
         data class WordWithEntry(val word: String, val entry: DictionaryEntry)
     }
 
-}
-
-fun getFiles(path: String, extension: String? = null): List<File> {
-    val directory = File(path)
-    if (!directory.exists() && !directory.isDirectory) return emptyList()
-    val files = directory.list { dir, name ->
-        val file = File(dir, name)
-        file.exists() && file.isFile && (extension == null || file.extension == extension)
-    } ?: emptyArray()
-    return files.map { File(directory, it) }
 }
 
 val boolArguments = hashSetOf("i", "interactive", "s", "sequential")
