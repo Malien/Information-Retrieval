@@ -10,7 +10,6 @@ import kotlin.system.measureTimeMillis
 import kotlinx.serialization.*
 import kotlinx.serialization.internal.IntDescriptor
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonConfiguration
 
 //TODO: Return inline classes and make them serializable
 @Serializable
@@ -156,20 +155,6 @@ fun getFiles(path: String, extension: String? = null): List<File> {
 @UnstableDefault
 @ExperimentalCoroutinesApi
 fun main() {
-//    val suspendDict = Dictionary()
-//    val suspendTime = measureTimeMillis {
-//        runBlocking {
-//            suspendDict.addSuspending(getFiles(("input")))
-//        }
-//    }
-//    println("suspend")
-//
-//    val parallelDict = Dictionary()
-//    val parallelTime = measureTimeMillis {
-//        parallelDict.addParallel(getFiles("input"))
-//    }
-//    println("parallel")
-
     val syncDict = Dictionary()
     val syncTime = measureTimeMillis {
         for (file in getFiles("input")) {
@@ -183,10 +168,7 @@ fun main() {
         }
     }
 
-//    syncDict.forEach { println(it) }
-
     val out = FileWriter("out.json")
-    val json = Json(JsonConfiguration.Stable)
     val strData = Json.stringify(Dictionary.serializer(), syncDict)
     out.write(strData)
     out.close()
@@ -208,8 +190,4 @@ fun main() {
     val total = syncDict.totalWords
     val unique = syncDict.uniqueWords
     println("Took $syncTime ms to index. Total words: $total, unique: $unique. Memory usage: $memoryUsage")
-
-//    val parallelRatio = (syncTime.toDouble() / parallelTime).round(2)
-//    val suspendRatio = (syncTime.toDouble() / suspendTime).round(2)
-//    println("Parallel: $parallelTime ($parallelRatio x), Suspending $suspendTime ($suspendRatio x), Synchronous: $syncTime")
 }
