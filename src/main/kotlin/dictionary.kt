@@ -1,12 +1,13 @@
-import java.io.BufferedReader
-import java.io.File
-import java.io.FileReader
-import java.io.FileWriter
-import kotlin.system.measureTimeMillis
 import kotlinx.serialization.*
 import kotlinx.serialization.internal.IntDescriptor
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonConfiguration
+import java.io.BufferedReader
+import java.io.File
+import java.io.FileReader
+import java.io.FileWriter
+import java.util.*
+import kotlin.system.measureTimeMillis
 
 //TODO: Return inline classes and make them serializable
 @Serializable
@@ -28,7 +29,7 @@ data class DocumentID(val id: Int) : Comparable<DocumentID> {
 
 //TODO: Return inline classes and make them serializable
 @Serializable
-data class DictionaryEntry(val counts: ArrayMap<DocumentID, Int> = ArrayMap()) {
+data class DictionaryEntry(val counts: TreeMap<DocumentID, Int> = TreeMap()) {
     override fun toString() =
         buildString {
             append("DictionaryEntry(counts=[")
@@ -42,7 +43,7 @@ data class DictionaryEntry(val counts: ArrayMap<DocumentID, Int> = ArrayMap()) {
 
     @Serializer(forClass = DictionaryEntry::class)
     companion object: KSerializer<DictionaryEntry> {
-        private val serializer = ArrayMap.serializer(DocumentID.serializer(), Int.serializer())
+        private val serializer = TreeMapArraySerializer(DocumentID.serializer(), Int.serializer())
         override val descriptor: SerialDescriptor = serializer.descriptor
         override fun deserialize(decoder: Decoder) =
             DictionaryEntry(decoder.decodeSerializableValue(serializer))
@@ -54,7 +55,8 @@ data class DictionaryEntry(val counts: ArrayMap<DocumentID, Int> = ArrayMap()) {
 
 @Serializable
 class Dictionary : Iterable<Dictionary.Companion.WordWithEntry> {
-    private val entries = ArrayMap<String, DictionaryEntry>()
+    @Serializable(with = TreeMapArraySerializer::class)
+    private val entries = TreeMap<String, DictionaryEntry>()
     private var _total = 0
     private var _unique = 0
 
@@ -63,11 +65,13 @@ class Dictionary : Iterable<Dictionary.Companion.WordWithEntry> {
 
     fun add(word: String, document: DocumentID) {
         _total++
-        val entry = entries.getOrSet(word) {
+        val entry = entries.getOrPut(word) {
             _unique++
             DictionaryEntry()
         }
-        entry.counts.mutateOrSet(document, { it + 1 }, { 0 })
+        val count = entry.counts[document]
+        if (count != null) entry.counts[document] = count + 1
+        else entry.counts[document] = 1
     }
 
     override fun toString(): String {
