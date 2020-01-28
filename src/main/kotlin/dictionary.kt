@@ -16,11 +16,13 @@ data class DocumentID(val id: Int) : Comparable<DocumentID> {
         id.compareTo(other.id)
 
     @Serializer(forClass = DocumentID::class)
-    companion object: KSerializer<DocumentID> {
+    companion object : KSerializer<DocumentID> {
         override val descriptor: SerialDescriptor =
             IntDescriptor.withName("id")
+
         override fun deserialize(decoder: Decoder) =
             DocumentID(decoder.decodeInt())
+
         override fun serialize(encoder: Encoder, obj: DocumentID) {
             encoder.encodeInt(obj.id)
         }
@@ -34,19 +36,21 @@ data class DictionaryEntry(val counts: TreeMap<DocumentID, Int> = TreeMap()) {
         buildString {
             append("DictionaryEntry(counts=[")
             for ((document, count) in counts) {
-                append(document)
+                append(document.id)
                 append(':')
                 append(count)
+                append(", ")
             }
             append("])")
         }
 
     @Serializer(forClass = DictionaryEntry::class)
-    companion object: KSerializer<DictionaryEntry> {
+    companion object : KSerializer<DictionaryEntry> {
         private val serializer = TreeMapArraySerializer(DocumentID.serializer(), Int.serializer())
         override val descriptor: SerialDescriptor = serializer.descriptor
         override fun deserialize(decoder: Decoder) =
             DictionaryEntry(decoder.decodeSerializableValue(serializer))
+
         override fun serialize(encoder: Encoder, obj: DictionaryEntry) {
             encoder.encodeSerializableValue(serializer, obj.counts)
         }
@@ -87,14 +91,28 @@ class Dictionary : Iterable<Dictionary.Companion.WordWithEntry> {
 
 }
 
-val boolArguments = hashSetOf("i", "interactive", "s", "sequential")
-val stringArguments = hashMapOf<String, String?>("execute" to null)
+fun getFiles(path: String, extension: String? = null): List<File> {
+    val directory = File(path)
+    if (!directory.exists() && !directory.isDirectory) return emptyList()
+    val files = directory.list { dir, name ->
+        val file = File(dir, name)
+        file.exists() && file.isFile && (extension == null || file.extension == extension)
+    } ?: emptyArray()
+    return files.map { File(directory, it) }
+}
+
+val boolArguments = hashSetOf("i", "interactive", "s", "sequential", "d")
+val stringArguments = hashMapOf<String, String?>("execute" to null, "find" to null, "o" to null, "from" to null)
 
 fun main(args: Array<String>) {
     val parsed = Arguments(DefaultArguments(booleans = boolArguments, strings = stringArguments), args)
 
-    val files = parsed.unspecified.asSequence()
-        .map { File(it) }
+    val files = (
+        if ("d" in parsed.booleans) {
+            parsed.unspecified.asSequence()
+                .flatMap { getFiles(it).asSequence() }
+        } else parsed.unspecified.asSequence().map { File(it) }
+    )
         .filter {
             if (!it.exists()) {
                 System.err.println("$it does not exist")
@@ -111,13 +129,14 @@ fun main(args: Array<String>) {
 
     val dict = Dictionary()
     val syncTime = measureTimeMillis {
-        for (file in files) {
+        for ((idx, file) in files.withIndex()) {
+            println("$idx -> $file")
             val br = BufferedReader(FileReader(file))
             br.lineSequence()
                 .flatMap { it.split(Regex("\\W+")).asSequence() }
                 .filter { it.isNotBlank() }
                 .map { it.toLowerCase() }
-                .forEach { dict.add(it, DocumentID(0)) }
+                .forEach { dict.add(it, DocumentID(idx)) }
             br.close()
         }
     }
@@ -138,7 +157,7 @@ fun main(args: Array<String>) {
         }
     }
     val diskDict = JSON.parse(Dictionary.serializer(), string)
-    diskDict.forEach{ println(it) }
+    diskDict.forEach { println(it) }
 
     val runtime = Runtime.getRuntime()
     val memoryUsage = (runtime.totalMemory() - runtime.freeMemory()).megabytes
@@ -146,8 +165,10 @@ fun main(args: Array<String>) {
     val unique = dict.uniqueWords
     val count = files.count()
     val mbs = size.megabytes
-    println("Indexed $count files ($mbs MB total). " +
-            "Took $syncTime ms to index. " +
-            "Total words: $total, unique: $unique. " +
-            "Memory usage: $memoryUsage MB.")
+    println(
+        "Indexed $count files ($mbs MB total). " +
+                "Took $syncTime ms to index. " +
+                "Total words: $total, unique: $unique. " +
+                "Memory usage: $memoryUsage MB."
+    )
 }

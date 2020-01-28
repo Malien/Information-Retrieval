@@ -31,8 +31,9 @@ class Arguments(private val defaults_: DefaultArguments, args: Array<String>) {
                 else strs[flag] = arg
             } else {
                 if (arg.startsWith("-")) {
-                    if (arg in boolDesc) bools.add(arg)
-                    else flag = arg.drop(1)
+                    val stripped = arg.drop(1)
+                    if (stripped in boolDesc) bools.add(stripped)
+                    else flag = stripped
                 } else other.add(arg)
             }
         }

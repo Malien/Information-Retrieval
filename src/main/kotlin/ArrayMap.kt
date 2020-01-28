@@ -1,6 +1,5 @@
 import kotlinx.serialization.*
 import kotlinx.serialization.internal.ArrayClassDesc
-import kotlin.collections.ArrayList
 
 //TODO: Implement fully SortedMap interface just for LOLz
 @Serializable(with = ArrayMap.ArraySerializer::class)
@@ -53,6 +52,26 @@ class ArrayMap<K : Comparable<K>, V>(
             add(Container(key, value), -idx - 1)
             value
         }
+    }
+
+    fun <T> intersect(other: ArrayMap<K, T>): ArrayList<K> {
+        val res = ArrayList<K>()
+        var i = 0
+        var j = 0
+        while (i != size && j != other.size) {
+            val k1 = arr[i]!!.key
+            val k2 = arr[j]!!.key
+            when {
+                k1 > k2 -> { j++ }
+                k1 < k2 -> { i++ }
+                else -> {
+                    res.add(k1)
+                    i++
+                    j++
+                }
+            }
+        }
+        return res
     }
 
     fun get(key: K): V? {

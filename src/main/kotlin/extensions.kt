@@ -60,4 +60,3 @@ class TreeMapArraySerializer<K:Comparable<K>, V>(
         data class Container<K, V>(val key: K, val value: V)
     }
 }
-
