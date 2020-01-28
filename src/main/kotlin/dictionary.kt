@@ -2,6 +2,8 @@ import kotlinx.serialization.*
 import kotlinx.serialization.internal.IntDescriptor
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonConfiguration
+import util.Arguments
+import util.DefaultArguments
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileReader
@@ -105,7 +107,12 @@ val boolArguments = hashSetOf("i", "interactive", "s", "sequential", "d")
 val stringArguments = hashMapOf<String, String?>("execute" to null, "find" to null, "o" to null, "from" to null)
 
 fun main(args: Array<String>) {
-    val parsed = Arguments(DefaultArguments(booleans = boolArguments, strings = stringArguments), args)
+    val parsed = Arguments(
+        DefaultArguments(
+            booleans = boolArguments,
+            strings = stringArguments
+        ), args
+    )
 
     val files = (
         if ("d" in parsed.booleans) {

@@ -1,3 +1,5 @@
+package util
+
 data class ArgumentMap(val strings: HashMap<String, String?> = HashMap(),
                        val booleans: HashSet<String> = HashSet(),
                        val numbers: HashMap<String, Double?> = HashMap(),

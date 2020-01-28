@@ -1,3 +1,6 @@
+package util
+
+import binarySearch
 import kotlinx.serialization.*
 import kotlinx.serialization.internal.ArrayClassDesc
 
