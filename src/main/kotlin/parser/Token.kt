@@ -17,9 +17,16 @@ sealed class Token(val value: String) {
     }
 
     fun component1() = value
+    override fun toString() = value
+
 }
 
-class Terminal(value: String, val repr: String? = null): Token(value)
+class Terminal(value: String, val repr: String? = null): Token(value) {
+    override fun toString() = when (repr) {
+        null -> super.toString()
+        else -> "$value($repr)"
+    }
+}
 
 class NonTerminal(value: String): Token(value)
 

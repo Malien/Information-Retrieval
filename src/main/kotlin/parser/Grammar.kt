@@ -33,43 +33,17 @@ class Grammar(val start: NonTerminal) {
                 }
             }
 
-            val _table = ParsingTable()
+            val table = ParsingTable()
             for ((nonTerminal, replacements) in rules) {
-                _table.table[nonTerminal] = hashMapOf()
+                table.table[nonTerminal] = hashMapOf()
                 for (replacement in replacements) {
                     val terminals = findTerminal(replacement).toTypedArray()
                     for (terminal in terminals) {
-                        _table.table[nonTerminal]!![terminal] = replacement
+                        table.table[nonTerminal]!![terminal] = replacement
                     }
                 }
             }
-            return _table
+            return table
         }
 
-}
-
-val BooleanLogic = {
-    val id = Terminal("id")
-    val and = Terminal("and")
-    val or = Terminal("or")
-    val not = Terminal("not")
-    val obracket = Terminal("(")
-    val cbracket = Terminal(")")
-
-    val V = NonTerminal("V")
-    val O = NonTerminal("O")
-
-    Grammar(V).add(
-        V, arrayListOf(
-            Replacement(obracket, id, cbracket),
-            Replacement(id, O),
-            Replacement(not, id, O)
-        )
-    ).add(
-        O, arrayListOf(
-            Replacement(and, V),
-            Replacement(or, V),
-            Replacement(EPS)
-        )
-    )
 }
