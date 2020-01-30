@@ -11,6 +11,10 @@ val cbracket = Terminal(")")
 
 val V = NonTerminal("V")
 val O = NonTerminal("O")
+val Vx = NonTerminal("Vx")
+val T = NonTerminal("T")
+val Tx = NonTerminal("Tx")
+val N = NonTerminal("N")
 
 inline class BooleanLogicGrammar(val grammar: Grammar)
 inline class BooleanLogicParseTree(val tree: ParseTree)
@@ -18,16 +22,29 @@ inline class BooleanLogicParseTree(val tree: ParseTree)
 val grammar: BooleanLogicGrammar by lazy {
     BooleanLogicGrammar(
         Grammar(V).add(
-            V, arrayListOf(
-                Replacement(obracket, V, cbracket),
-                Replacement(id, O),
-                Replacement(not, V)
+            V, Replacement(T, Vx)
+        ).add(
+            Vx, arrayListOf(
+                Replacement(EPS),
+                Replacement(or, T)
+            )
+        ).add(
+            T, Replacement(O, Tx)
+        ).add(
+            Tx, arrayListOf(
+                Replacement(EPS),
+                Replacement(and, O)
             )
         ).add(
             O, arrayListOf(
-                Replacement(and, V),
-                Replacement(or, V),
-                Replacement(EPS)
+                Replacement(id),
+                Replacement(not, N),
+                Replacement(obracket, V, cbracket)
+            )
+        ).add(
+            N, arrayListOf(
+                Replacement(id),
+                Replacement(obracket, V, cbracket)
             )
         )
     )
@@ -36,55 +53,74 @@ val grammar: BooleanLogicGrammar by lazy {
 fun parse(token: Queue<Terminal>): BooleanLogicParseTree =
     BooleanLogicParseTree(parse(token, grammar.grammar.table, grammar.grammar.start))
 
-@Suppress("UNCHECKED_CAST")
-fun <T> eval(
-    tree: BooleanLogicParseTree,
-    fromID: (String) -> T,
-    cross: (T, T) -> T,
-    unite: (T, T) -> T,
-    negate: (T) -> T
-): T {
-    data class Operation(val value: ParseTreeNode<NonTerminal>, val operation: (T, T) -> T) {
-        operator fun invoke(a: T, b: T): T = operation(a, b)
+class EvalContext<T>(
+    private val fromID: (String) -> T,
+    private val cross: (T, T) -> T,
+    private val unite: (T, T) -> T,
+    private val negate: (T) -> T
+) {
+    private fun assertNode(node: ParseTreeNode<out Token>, expected: Token): Array<ParseTreeNode<Token>> {
+        if (node.token != expected) throw InterpretationError("Expected $expected node, but got ${node.token}")
+        val connections = node.connections ?: throw InterpretationError("$expected node has no connections")
+        if (connections.isEmpty()) throw InterpretationError("Invalid $expected node connection size")
+        return connections
     }
 
-    fun parseOperation(node: ParseTreeNode<NonTerminal>): Operation? {
-        assert(node.token == O)
-        val connections = node.connections ?: throw InterpretationError("Operation node has no connections")
-        if (connections.isEmpty()) throw InterpretationError("Invalid Operation node connection size")
+    private fun evalV(node: ParseTreeNode<out Token>): T {
+        val connections = assertNode(node, V)
+        val lhs = evalT(connections[0])
+        val vx = connections[1]
+        val vxConnections = assertNode(vx, Vx)
+        return when (vxConnections[0].token) {
+            EPS -> lhs
+            or -> unite(lhs, evalT(vxConnections[1]))
+            else ->
+                throw InterpretationError("Invalid node. Expected EPS or and, but got ${vxConnections[0].token}")
+        }
+    }
+
+    private fun evalT(node: ParseTreeNode<out Token>): T {
+        val connections = assertNode(node, T)
+        val lhs = evalO(connections[0])
+        val tx = connections[1]
+        val txConnections = assertNode(tx, Tx)
+        return when (txConnections[0].token) {
+            EPS -> lhs
+            and -> cross(lhs, evalO(txConnections[1]))
+            else ->
+                throw InterpretationError("Invalid node. Expected EPS or and, but got ${txConnections[0].token}")
+        }
+    }
+
+    private fun evalO(node: ParseTreeNode<out Token>): T {
+        val connections = assertNode(node, O)
         return when (connections.first().token) {
-            and -> Operation(connections[1] as ParseTreeNode<NonTerminal>, cross)
-            or -> Operation(connections[1] as ParseTreeNode<NonTerminal>, unite)
-            EPS -> null
-            else -> throw InterpretationError("Unknown Operation node replacement")
+            id -> evalID(connections.first())
+            not -> evalN(connections[1])
+            obracket -> evalV(connections[1])
+            else -> throw InterpretationError("Invalid node")
         }
     }
 
-    fun evalValue(node: ParseTreeNode<NonTerminal>): T {
-        assert(node.token == V)
-        val connections = node.connections ?: throw InterpretationError("Value node has no connections")
-        if (connections.size < 2) throw InterpretationError("Invalid Value node connections size")
-        val first = connections.first().token
-        if (first !is Terminal) throw InterpretationError("Unexpected non-terminal")
-        return when (first) {
-            id -> {
-                val lhs = first.repr?.let { fromID(it) }
-                    ?: throw InterpretationError("Encountered id without repr field")
-                val operation = parseOperation(connections[1] as ParseTreeNode<NonTerminal>)
-                return if (operation == null) lhs
-                else operation(lhs, evalValue(operation.value))
-            }
-            obracket -> {
-                evalValue(connections[1] as ParseTreeNode<NonTerminal>)
-            }
-            not -> {
-                negate(evalValue(connections[1] as ParseTreeNode<NonTerminal>))
-            }
-            else -> throw InterpretationError("Unknown Value node replacement")
+    private fun evalN(node: ParseTreeNode<out Token>): T {
+        val connections = assertNode(node, N)
+        return when (connections.first().token) {
+            id -> negate(evalID(connections.first()))
+            obracket -> negate(evalV(connections[1]))
+            else -> throw InterpretationError("Invalid node")
         }
     }
 
-    return evalValue(tree.tree.root)
+    private fun evalID(node: ParseTreeNode<out Token>): T {
+        val idToken = node.token
+        return if (idToken is Terminal && idToken.repr != null) fromID(idToken.repr)
+        else throw InterpretationError("Invalid node taken as id. Got $idToken, expected $id")
+    }
+
+    fun eval(tree: BooleanLogicParseTree): T =
+        evalV(tree.tree.root)
+
+    operator fun invoke(tree: BooleanLogicParseTree) = eval(tree)
 }
 
 val tokensRegex = Regex("\\w+|[&|!()]")
@@ -108,19 +144,8 @@ fun tokenize(str: String): Queue<Terminal> {
 }
 
 fun main() {
-    val tokens = ArrayDeque<Terminal>()
-    tokens.add(Terminal("id", "A"))
-    tokens.add(and)
-    tokens.add(not)
-    tokens.add(obracket)
-    tokens.add(Terminal("id", "B"))
-    tokens.add(or)
-    tokens.add(Terminal("id", "C"))
-    tokens.add(cbracket)
-
-    val t = tokenize("A & !(B | C)")
-
-    val tree = parse(t)
-    val evaluated = eval(tree, { it }, { a, b -> "($a & $b)" }, { a, b -> "($a | $b)" }, { "(! $it)" })
-    println(evaluated)
+    val tokens = tokenize("A & !(B | C)")
+    val tree = parse(tokens)
+    val context = EvalContext({ it }, { a, b -> "($a & $b)" }, { a, b -> "($a | $b)" }, { "(! $it)" })
+    println(context(tree))
 }
