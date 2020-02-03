@@ -57,26 +57,6 @@ class ArrayMap<K : Comparable<K>, V>(
         }
     }
 
-    fun <T> intersect(other: ArrayMap<K, T>): ArrayList<K> {
-        val res = ArrayList<K>()
-        var i = 0
-        var j = 0
-        while (i != size && j != other.size) {
-            val k1 = arr[i]!!.key
-            val k2 = arr[j]!!.key
-            when {
-                k1 > k2 -> { j++ }
-                k1 < k2 -> { i++ }
-                else -> {
-                    res.add(k1)
-                    i++
-                    j++
-                }
-            }
-        }
-        return res
-    }
-
     fun get(key: K): V? {
         val idx = insertionIndex(key)
         return if (idx >= 0) arr[idx]!!.value else null

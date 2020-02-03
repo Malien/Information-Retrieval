@@ -129,6 +129,7 @@ fun tokenize(str: String): Queue<Terminal> {
     tokensRegex.findAll(str)
         .map { it.groups[0]?.value }
         .filterNotNull()
+        .map { it.toLowerCase() }
         .map {
             when (it) {
                 "&" -> and

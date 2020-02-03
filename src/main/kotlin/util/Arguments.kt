@@ -12,6 +12,8 @@ data class DefaultArguments (val strings: HashMap<String, String?> = HashMap(),
                              val numbers: HashMap<String, Double?> = HashMap(),
                              val booleans: HashSet<String> = HashSet())
 
+//TODO: add support for shortened arguments
+//TODO: add support for string parsing and/or escape characters
 fun parseArgs(defaults: DefaultArguments, args: Array<String>) : ArgumentMap {
     val arguments = ArgumentMap(defaults)
     var flag: String? = null
