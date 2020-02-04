@@ -10,6 +10,8 @@ data class KeySet<T : Comparable<T>> (val iterator: Iterator<T>, val negated: Bo
     override fun iterator() = iterator
 }
 
+val <T:Comparable<T>> Iterator<T>.keySet get() = KeySet(this)
+
 private fun <T : Comparable<T>> uniteSame(lhs: Iterator<T>, rhs: Iterator<T>) : Iterator<T> {
     if (!lhs.hasNext()) return rhs
     if (!rhs.hasNext()) return lhs

@@ -27,7 +27,6 @@ inline fun <reified T, reified U> Array<T>.mapArray(transform: (T) -> U): Array<
     Array<U>(this.size) { transform(this[it]) }
 
 //TODO: To avoid re-allocations write serializer for Map.Entry
-
 @Serializer(forClass = TreeMap::class)
 class TreeMapArraySerializer<K:Comparable<K>, V>(
     keySerializer: KSerializer<K>,

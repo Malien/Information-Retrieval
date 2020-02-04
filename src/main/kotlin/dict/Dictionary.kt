@@ -2,22 +2,36 @@ package dict
 
 import TreeMapArraySerializer
 import kotlinx.serialization.*
+import util.KeySet
 import java.util.*
 
+typealias Documents = KeySet<DocumentID>
+
 @Serializable
-class Dictionary (
+class Dictionary(
     val singleWord: Boolean = true,
     val doubleWord: Boolean = true,
     val position: Boolean = true
 ) {
+
+    init {
+        if (!singleWord && !doubleWord && !position) {
+            throw NoDictionarySpecifiedError("Expected to enable at least one dictionary")
+        }
+    }
+
     val singleWordDict: SingleWordDict? = if (singleWord) SingleWordDict() else null
+    val doubleWordDict: DoubleWordDict? = if (doubleWord) DoubleWordDict() else null
 
     private var _total = 0
 
     val totalWords: Int get() = _total
-    val uniqueWords: Int get() = singleWordDict?.uniqueWords ?:
-        //TODO: positioned uniqueness
-        throw UnsupportedOperation("To get unique word count enable single-word or position dictionaries")
+    val uniqueWords: Int
+        get() =
+            singleWordDict?.uniqueWords ?:
+            //TODO: positioned uniqueness
+            doubleWordDict?.uniqueWords ?:
+            throw UnsupportedOperationError("How did you manage to create dictionary with no dictionaries")
 
     @Serializable(with = TreeMapArraySerializer::class)
     private val _documents: TreeMap<DocumentID, String> = TreeMap()
@@ -28,8 +42,31 @@ class Dictionary (
         singleWordDict?.add(word, from)
     }
 
-    fun get(word: String): DictionaryEntry =
-        singleWordDict?.get(word) ?: DictionaryEntry()
+    fun add(first: String, second: String, from: DocumentID) =
+        doubleWordDict?.add(first, second, from)
+
+    fun add(word: String, position: Int, from: DocumentID) {
+        _total++
+        singleWordDict?.add(word, from)
+        //TODO: Positioned
+    }
+
+    fun get(word: String): Documents =
+        singleWordDict?.get(word) ?:
+        //TODO: Positioned
+        doubleWordDict?.get(word) ?: Documents(iterator {})
+
+    fun get(first: String, second: String): Documents =
+        doubleWordDict?.get(first, second) ?:
+        //TODO: Positioned
+        singleWordDict?.get(first, second) ?:
+        throw UnsupportedOperationError("How did you manage to create dictionary with no dictionaries")
+
+    fun get(vararg words: String): Documents =
+        //TODO: Positioned
+        doubleWordDict?.get(*words) ?:
+        singleWordDict?.get(*words) ?:
+        throw UnsupportedOperationError("How did you manage to create dictionary with no dictionaries")
 
     fun registerDocument(path: String): DocumentID {
         val id = DocumentID(documentCount++)
