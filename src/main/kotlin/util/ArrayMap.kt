@@ -1,8 +1,22 @@
 package util
 
-import binarySearch
 import kotlinx.serialization.*
 import kotlinx.serialization.internal.ArrayClassDesc
+
+inline fun <T> Array<T>.binarySearch(fromIndex: Int = 0, toIndex: Int = this.size, comparison: (T) -> Int): Int {
+    var lo = fromIndex
+    var hi = toIndex
+    while (lo <= hi) {
+        val mid = (lo + hi) / 2
+        val cmp = comparison(this[mid])
+        when {
+            cmp > 0 -> { hi = mid - 1 }
+            cmp < 0 -> { lo = mid + 1 }
+            else -> return mid
+        }
+    }
+    return -lo - 1
+}
 
 //TODO: Implement fully SortedMap interface just for LOLz
 @Serializable(with = ArrayMap.ArraySerializer::class)

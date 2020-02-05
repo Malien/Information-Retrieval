@@ -1,6 +1,5 @@
 package parser
 
-import mapArray
 import java.util.*
 
 inline class ParseTree(val root: ParseTreeNode<NonTerminal>)
@@ -8,6 +7,9 @@ inline class ParseTree(val root: ParseTreeNode<NonTerminal>)
 class ParseTreeNode<T : Token>(internal var _token: T, var connections: Array<ParseTreeNode<Token>>? = null) {
     val token get() = _token
 }
+
+inline fun <T, reified U> Array<T>.mapArray(transform: (T) -> U): Array<U> =
+    Array<U>(this.size) { transform(this[it]) }
 
 /**
  * top-down parsing
