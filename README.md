@@ -24,9 +24,9 @@ java -jar executable-name.jar -d [directories] <options>
 - `s` or `sequential` **\[WIP\]** will index things sequentially, instead of in parallel. Parallel mode is not implemented, so it will only index things sequentially by now.
 - `n` will evaluate boolean negations.
 - `disable-single-word` will disable indexing stuff inside of single-word index table.
-- `disable-double-word` will disable indexing word pairs for more relevant and fast two-word queries
+- `disable-double-word` will disable indexing word pairs for more relevant and fast two-word queries. Disabling double-word dictionary will lower accuracy if position is also disabled
 - `disable-postion` will disable indexing words with their respected positions. This disables finding words within k words within each other and will lower accuracy of mutli-word queries
-- `find [query]` will execute single querry.
+- `find [query]` will execute single query.
 - `execute [file]` will execute queries found in file
 - `o [file]` will save indexing table to file
 - `from [file]` will load indexing table from file

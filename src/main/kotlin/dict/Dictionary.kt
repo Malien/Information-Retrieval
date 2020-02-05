@@ -1,11 +1,14 @@
 package dict
 
-import TreeMapArraySerializer
 import kotlinx.serialization.*
 import util.KeySet
+import util.TreeMapArraySerializer
 import java.util.*
 
 typealias Documents = KeySet<DocumentID>
+fun emptyDocuments() = Documents(iterator {})
+
+data class SpacedWord(val word: String, val spaced: Int)
 
 @Serializable
 class Dictionary(
@@ -22,6 +25,7 @@ class Dictionary(
 
     val singleWordDict: SingleWordDict? = if (singleWord) SingleWordDict() else null
     val doubleWordDict: DoubleWordDict? = if (doubleWord) DoubleWordDict() else null
+    val positionedDict: PositionedDict? = if (position)   PositionedDict() else null
 
     private var _total = 0
 
@@ -29,7 +33,7 @@ class Dictionary(
     val uniqueWords: Int
         get() =
             singleWordDict?.uniqueWords ?:
-            //TODO: positioned uniqueness
+            positionedDict?.uniqueWords ?:
             doubleWordDict?.uniqueWords ?:
             throw UnsupportedOperationError("How did you manage to create dictionary with no dictionaries")
 
@@ -48,25 +52,31 @@ class Dictionary(
     fun add(word: String, position: Int, from: DocumentID) {
         _total++
         singleWordDict?.add(word, from)
-        //TODO: Positioned
+        positionedDict?.add(word, position, from)
     }
 
     fun get(word: String): Documents =
         singleWordDict?.get(word) ?:
-        //TODO: Positioned
-        doubleWordDict?.get(word) ?: Documents(iterator {})
+        positionedDict?.get(word) ?:
+        doubleWordDict?.get(word) ?:
+        throw UnsupportedOperationError("How did you manage to create dictionary with no dictionaries")
 
     fun get(first: String, second: String): Documents =
         doubleWordDict?.get(first, second) ?:
-        //TODO: Positioned
+        positionedDict?.get(first, second) ?:
         singleWordDict?.get(first, second) ?:
         throw UnsupportedOperationError("How did you manage to create dictionary with no dictionaries")
 
     fun get(vararg words: String): Documents =
-        //TODO: Positioned
+        positionedDict?.get(*words) ?:
         doubleWordDict?.get(*words) ?:
         singleWordDict?.get(*words) ?:
         throw UnsupportedOperationError("How did you manage to create dictionary with no dictionaries")
+
+    fun get(vararg spacedWord: SpacedWord): Documents =
+        positionedDict?.get(*spacedWord) ?:
+        throw UnsupportedOperationError("Spaced search requires positioned dictionary to be enabled " +
+                "(remove disable-position flag)")
 
     fun registerDocument(path: String): DocumentID {
         val id = DocumentID(documentCount++)
@@ -86,7 +96,7 @@ class Dictionary(
 
     companion object {
         //TODO: version validation
-        val __version = "0.3.0"
+        const val _VERSION = "0.3.0"
     }
 }
 

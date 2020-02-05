@@ -1,7 +1,7 @@
 package dict
 
-import TreeMapArraySerializer
 import kotlinx.serialization.Serializable
+import util.TreeMapArraySerializer
 import util.cross
 import util.keySet
 import java.util.*
@@ -28,20 +28,16 @@ class SingleWordDict : Iterable<SingleWordDict.Companion.WordWithEntry> {
         else entry.counts[document] = 1
     }
 
-    fun get(word: String): Documents? =
-        entries[word]?.counts?.keys?.iterator()?.keySet
+    fun get(word: String): Documents =
+        entries[word]?.counts?.keys?.iterator()?.keySet ?: emptyDocuments()
 
-    fun get(vararg words: String): Documents? {
+    fun get(vararg words: String): Documents {
         var set: Documents? = null
         for (word in words) {
             set = if (set == null) get(word)
-            else {
-                val n = get(word)
-                if (n == null) return null
-                else cross(set, n)
-            }
+            else cross(set, get(word))
         }
-        return set
+        return set ?: emptyDocuments()
     }
 
     override fun toString(): String {

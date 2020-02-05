@@ -7,7 +7,13 @@ import java.io.BufferedReader
 import java.io.File
 import java.io.FileReader
 import java.io.FileWriter
+import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.system.measureTimeMillis
+
+fun Double.round(digits: Int = 0) = (10.0.pow(digits) * this).roundToInt() / 10.0.pow(digits)
+
+val Long.megabytes get() = (this / 1024 / 1024.0).round(2)
 
 fun getFiles(path: String, extension: String? = null): List<File> {
     val directory = File(path)
@@ -159,7 +165,7 @@ fun main(args: Array<String>) {
     // REPL
     if ("i" in parsed.booleans || "interactive" in parsed.booleans) {
         val eval = EvalContext (
-            fromID = { KeySet(dict.get(it).counts.keys.iterator()) },
+            fromID = { dict.get(it) },
             unite = ::unite,
             cross = ::cross,
             negate = ::negate

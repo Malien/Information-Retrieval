@@ -1,7 +1,7 @@
 package dict
 
-import TreeMapArraySerializer
 import kotlinx.serialization.Serializable
+import util.TreeMapArraySerializer
 import util.cross
 import util.keySet
 import util.unite
@@ -27,22 +27,19 @@ class DoubleWordDict {
         else entry.counts[from] = 1
     }
 
-    fun get(word: String): Documents? =
+    fun get(word: String): Documents =
         entries[word]?.values?.asSequence()?.map { it.counts.keys.iterator().keySet }?.reduce(::unite)
+            ?: emptyDocuments()
 
-    fun get(first: String, second: String): Documents? =
-        entries[first]?.get(second)?.counts?.keys?.iterator()?.keySet
+    fun get(first: String, second: String): Documents =
+        entries[first]?.get(second)?.counts?.keys?.iterator()?.keySet ?: emptyDocuments()
 
-    fun get(vararg words: String): Documents? {
+    fun get(vararg words: String): Documents {
         var set: Documents? = null
         for ((first, second) in words.asSequence().zipWithNext()) {
             set = if (set == null) get(first, second)
-            else {
-                val n = get(first, second)
-                if (n == null) return null
-                else cross(set, n)
-            }
+            else cross(set, get(first, second))
         }
-        return set
+        return set ?: emptyDocuments()
     }
 }
