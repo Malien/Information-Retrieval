@@ -165,7 +165,7 @@ fun main(args: Array<String>) {
     // REPL
     if ("i" in parsed.booleans || "interactive" in parsed.booleans) {
         val eval = EvalContext (
-            fromID = { dict.get(it) },
+            fromID = dict::eval,
             unite = ::unite,
             cross = ::cross,
             negate = ::negate

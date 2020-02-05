@@ -13,14 +13,10 @@ class DoubleWordDict {
     private val entries =
         TreeMap<String, @Serializable(with = TreeMapArraySerializer::class) TreeMap<String, DictionaryEntry>>()
 
-    private var _unique = 0
-    val uniqueWords get() = _unique
+    val uniqueWords get() = entries.size
 
     fun add(first: String, second: String, from: DocumentID) {
-        val firstResolution = entries.getOrPut(first) {
-            _unique++
-            TreeMap()
-        }
+        val firstResolution = entries.getOrPut(first) { TreeMap() }
         val entry = firstResolution.getOrPut(second) { DictionaryEntry() }
         val count = entry.counts[from]
         if (count != null) entry.counts[from] = count + 1

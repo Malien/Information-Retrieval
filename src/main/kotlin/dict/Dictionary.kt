@@ -78,11 +78,33 @@ class Dictionary(
         throw UnsupportedOperationError("Spaced search requires positioned dictionary to be enabled " +
                 "(remove disable-position flag)")
 
-    fun registerDocument(path: String): DocumentID {
-        val id = DocumentID(documentCount++)
-        _documents[id] = path
-        return DocumentID(_documents.size - 1)
+    @Transient
+    val nearRegex = Regex("/\\d+")
+    fun eval(query: String): Documents {
+        val words = query.split(Regex(" +")).filter { it.isNotBlank() }
+        return when {
+            words.isEmpty() -> emptyDocuments()
+            words.size == 1 -> get(words[0])
+            words.any { nearRegex.matches(it) } -> {
+                val s = sequence<SpacedWord> {
+                    var space = 1
+                    for (word in words) {
+                        space = if (nearRegex.matches(word)) {
+                            word.drop(1).toInt()
+                        } else {
+                            yield(SpacedWord(word, space))
+                            1
+                        }
+                    }
+                }
+                get(*s.toMutableList().toTypedArray())
+            }
+            else -> get(*words.toTypedArray())
+        }
     }
+
+    fun registerDocument(path: String): DocumentID =
+        DocumentID(documentCount++).also { _documents[it] = path }
 
     fun deregisterDocument(id: DocumentID) =
         if (id in _documents) {
