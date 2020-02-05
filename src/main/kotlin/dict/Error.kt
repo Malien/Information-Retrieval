@@ -1,5 +1,4 @@
 package dict
 
-class VersionMismatchError(msg: String)      : Error(msg)
-class UnsupportedOperationError(msg: String) : Error(msg)
-class NoDictionarySpecifiedError(msg: String): Error(msg)
+class VersionMismatchError       (msg: String): Error(msg)
+class NoDictionarySpecifiedError (msg: String): Error(msg)

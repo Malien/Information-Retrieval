@@ -35,7 +35,7 @@ class Dictionary(
             singleWordDict?.uniqueWords ?:
             positionedDict?.uniqueWords ?:
             doubleWordDict?.uniqueWords ?:
-            throw UnsupportedOperationError("How did you manage to create dictionary with no dictionaries")
+            throw UnsupportedOperationException("How did you manage to create dictionary with no dictionaries")
 
     @Serializable(with = TreeMapArraySerializer::class)
     private val _documents: TreeMap<DocumentID, String> = TreeMap()
@@ -59,23 +59,23 @@ class Dictionary(
         singleWordDict?.get(word) ?:
         positionedDict?.get(word) ?:
         doubleWordDict?.get(word) ?:
-        throw UnsupportedOperationError("How did you manage to create dictionary with no dictionaries")
+        throw UnsupportedOperationException("How did you manage to create dictionary with no dictionaries")
 
     fun get(first: String, second: String): Documents =
         doubleWordDict?.get(first, second) ?:
         positionedDict?.get(first, second) ?:
         singleWordDict?.get(first, second) ?:
-        throw UnsupportedOperationError("How did you manage to create dictionary with no dictionaries")
+        throw UnsupportedOperationException("How did you manage to create dictionary with no dictionaries")
 
     fun get(vararg words: String): Documents =
         positionedDict?.get(*words) ?:
         doubleWordDict?.get(*words) ?:
         singleWordDict?.get(*words) ?:
-        throw UnsupportedOperationError("How did you manage to create dictionary with no dictionaries")
+        throw UnsupportedOperationException("How did you manage to create dictionary with no dictionaries")
 
     fun get(vararg spacedWord: SpacedWord): Documents =
         positionedDict?.get(*spacedWord) ?:
-        throw UnsupportedOperationError("Spaced search requires positioned dictionary to be enabled " +
+        throw UnsupportedOperationException("Spaced search requires positioned dictionary to be enabled " +
                 "(remove disable-position flag)")
 
     @Transient

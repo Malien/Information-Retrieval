@@ -204,6 +204,8 @@ fun main(args: Array<String>) {
                 println("Interpretation Error: ${e.message}")
             } catch (e: SyntaxError) {
                 println("Syntax Error: ${e.message}")
+            } catch (e: UnsupportedOperationException) {
+                println("Unsupported operation: ${e.message}")
             }
             print(">>> ")
             query = readLine()
