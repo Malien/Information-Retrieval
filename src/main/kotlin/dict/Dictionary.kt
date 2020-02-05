@@ -85,15 +85,16 @@ class Dictionary(
         return when {
             words.isEmpty() -> emptyDocuments()
             words.size == 1 -> get(words[0])
+            words.size == 2 -> get(words[0], words[1])
             words.any { nearRegex.matches(it) } -> {
                 val s = sequence<SpacedWord> {
-                    var space = 1
+                    var space = 0
                     for (word in words) {
                         space = if (nearRegex.matches(word)) {
                             word.drop(1).toInt()
                         } else {
-                            yield(SpacedWord(word, space))
-                            1
+                            yield(SpacedWord(word, space + 1))
+                            0
                         }
                     }
                 }

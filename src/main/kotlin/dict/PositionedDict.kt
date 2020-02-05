@@ -37,7 +37,7 @@ class PositionedDict {
         var idx = 0
         leftLoop@ for (leftElement in left) {
             while (idx < right.size) {
-                val rightElement = right[idx] + offset
+                val rightElement = right[idx] - offset
                 when {
                     leftElement == rightElement -> return true
                     leftElement > rightElement -> idx++

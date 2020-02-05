@@ -128,11 +128,18 @@ fun main(args: Array<String>) {
             val id = dict.registerDocument(file.path)
             if (verbose) println("${id.id} -> $file")
             val br = BufferedReader(FileReader(file))
+            var prev: String? = null
             br.lineSequence()
                 .flatMap { it.split(Regex("\\W+")).asSequence() }
-                .filter { it.isNotBlank() }
-                .map { it.toLowerCase() }
-                .forEach { dict.add(it, id) }
+                .filter  { it.isNotBlank() }
+                .map     { it.toLowerCase() }
+                .forEachIndexed { idx, word ->
+                    dict.add(word, idx, id)
+                    if (prev != null) {
+                        dict.add(prev!!, word, id)
+                    }
+                    prev = word
+                }
             br.close()
         }
     }
@@ -170,7 +177,6 @@ fun main(args: Array<String>) {
             cross = ::cross,
             negate = ::negate
         )
-
         println("Started interactive REPL session.")
         print(">>> ")
         var query = readLine()
