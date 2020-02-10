@@ -11,6 +11,7 @@ data class KeySet<T : Comparable<T>> (val iterator: Iterator<T>, val negated: Bo
 }
 
 val <T:Comparable<T>> Iterator<T>.keySet get() = KeySet(this)
+val <T:Comparable<T>> Iterable<T>.keySet get() = KeySet(this.iterator())
 
 private fun <T : Comparable<T>> uniteSame(lhs: Iterator<T>, rhs: Iterator<T>) : Iterator<T> {
     if (!lhs.hasNext()) return rhs
@@ -111,6 +112,11 @@ fun <T : Comparable<T>> cross(lhs: KeySet<T>, rhs: KeySet<T>) = when {
 
 fun <T : Comparable<T>> negate(set: KeySet<T>) = KeySet(set.iterator, !set.negated)
 
+operator fun <T:Comparable<T>> KeySet<T>.not() = negate(this)
+// not sure about those ones
+operator fun <T:Comparable<T>> KeySet<T>.times(other: KeySet<T>) = cross(this, other)
+operator fun <T:Comparable<T>> KeySet<T>.plus(other: KeySet<T>) = unite(this, other)
+
 private fun <T : Comparable<T>> test(set: KeySet<T>) {
     println(if (set.negated) "negated" else "straight")
     set.forEach { println(it) }
@@ -121,6 +127,7 @@ fun main() {
     val b = arrayOf(1,3)
     val all = arrayOf(1,2,3,4)
     val none = emptyArray<Int>()
+    val neg = !a.iterator().keySet
 
     println("--- A or B ---")
     test(unite(

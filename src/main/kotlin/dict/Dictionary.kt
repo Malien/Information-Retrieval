@@ -1,85 +1,179 @@
 package dict
 
-import kotlinx.serialization.*
-import util.KeySet
-import util.TreeMapArraySerializer
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
+import util.*
 import java.util.*
+import kotlin.collections.Iterable
+import kotlin.collections.Iterator
+import kotlin.collections.List
+import kotlin.collections.any
+import kotlin.collections.arrayListOf
+import kotlin.collections.asSequence
+import kotlin.collections.component1
+import kotlin.collections.component2
+import kotlin.collections.contains
+import kotlin.collections.filter
+import kotlin.collections.getOrPut
+import kotlin.collections.iterator
+import kotlin.collections.map
+import kotlin.collections.set
+import kotlin.collections.toTypedArray
+import kotlin.collections.zipWithNext
 
 typealias Documents = KeySet<DocumentID>
+
 fun emptyDocuments() = Documents(iterator {})
 
 data class SpacedWord(val word: String, val spaced: Int)
 
 @Serializable
 class Dictionary(
-    val singleWord: Boolean = true,
-    val doubleWord: Boolean = true,
-    val position: Boolean = true
+    var doubleWord: Boolean = true,
+    var position: Boolean = true
 ) {
-
-    init {
-        if (!singleWord && !doubleWord && !position) {
-            throw NoDictionarySpecifiedError("Expected to enable at least one dictionary")
-        }
-    }
-
-    val singleWordDict: SingleWordDict? = if (singleWord) SingleWordDict() else null
-    val doubleWordDict: DoubleWordDict? = if (doubleWord) DoubleWordDict() else null
-    val positionedDict: PositionedDict? = if (position)   PositionedDict() else null
+    @Serializable(with = TreeMapArraySerializer::class)
+    private val entries = TreeMap<String, DictionaryEntry>()
 
     private var _total = 0
 
     val totalWords: Int get() = _total
-    val uniqueWords: Int
-        get() =
-            singleWordDict?.uniqueWords ?:
-            positionedDict?.uniqueWords ?:
-            doubleWordDict?.uniqueWords ?:
-            throw UnsupportedOperationException("How did you manage to create dictionary with no dictionaries")
+    val uniqueWords: Int get() = entries.size
 
     @Serializable(with = TreeMapArraySerializer::class)
     private val _documents: TreeMap<DocumentID, String> = TreeMap()
     private var documentCount = 0
 
-    fun add(word: String, from: DocumentID) {
+    /**
+     * Positions should be inserted only in sorted order
+     */
+    fun add(word: String, from: DocumentID, position: Int = -1, prev: String? = null) {
         _total++
-        singleWordDict?.add(word, from)
-    }
+        val entry = entries.getOrPut(word) { DictionaryEntry() }
 
-    fun add(first: String, second: String, from: DocumentID) =
-        doubleWordDict?.add(first, second, from)
+        if (this.doubleWord && position != -1) {
+            val positions = entry.documents.getOrPut(from) { ArrayList() }
+            if (positions == null) {
+                entry.documents[from] = arrayListOf(position)
+            } else positions.add(position)
+        } else entry.documents.putIfAbsent(from, null)
 
-    fun add(word: String, position: Int, from: DocumentID) {
-        _total++
-        singleWordDict?.add(word, from)
-        positionedDict?.add(word, position, from)
+        if (this.position && prev != null) {
+            if (entry.previous == null) entry.previous = TreeMap()
+            val docs = entry.previous!!.getOrPut(prev) { PriorityQueue() }
+            docs.add(from)
+        }
     }
 
     fun get(word: String): Documents =
-        singleWordDict?.get(word) ?:
-        positionedDict?.get(word) ?:
-        doubleWordDict?.get(word) ?:
-        throw UnsupportedOperationException("How did you manage to create dictionary with no dictionaries")
+        getSingle(word) ?: emptyDocuments()
 
     fun get(first: String, second: String): Documents =
-        doubleWordDict?.get(first, second) ?:
-        positionedDict?.get(first, second) ?:
-        singleWordDict?.get(first, second) ?:
-        throw UnsupportedOperationException("How did you manage to create dictionary with no dictionaries")
+        (if (doubleWord) getDouble(first, second) else null)
+            ?: (if (position) getPositioned(first, second) else null)
+            ?: getSingle(first, second)
+            ?: emptyDocuments()
 
     fun get(vararg words: String): Documents =
-        positionedDict?.get(*words) ?:
-        doubleWordDict?.get(*words) ?:
-        singleWordDict?.get(*words) ?:
-        throw UnsupportedOperationException("How did you manage to create dictionary with no dictionaries")
+        (if (position) getPositioned(*words) else null)
+            ?: (if (doubleWord) getDouble(*words) else null)
+            ?: getSingle(*words)
+            ?: emptyDocuments()
 
-    fun get(vararg spacedWord: SpacedWord): Documents =
-        positionedDict?.get(*spacedWord) ?:
-        throw UnsupportedOperationException("Spaced search requires positioned dictionary to be enabled " +
-                "(remove disable-position flag)")
+    fun get(vararg spacedWords: SpacedWord): Documents =
+        if (position) getPositioned(*spacedWords) ?: emptyDocuments()
+        else throw UnsupportedOperationException(
+            "Spaced search requires positioned dictionary to be enabled (remove disable-position flag)"
+        )
+
+    private fun <T> containsWithin(left: Iterable<Int>, right: T, offset: Int)
+            where T : List<Int>,
+                  T : RandomAccess = containsWithin(left.iterator(), right, offset)
+
+    private fun <T> containsWithin(left: Iterator<Int>, right: T, offset: Int): Boolean
+            where T : List<Int>,
+                  T : RandomAccess {
+        if (right.isEmpty()) return false
+        var idx = 0
+        leftLoop@ for (leftElement in left) {
+            while (idx < right.size) {
+                val rightElement = right[idx] - offset
+                when {
+                    leftElement == rightElement -> return true
+                    leftElement > rightElement -> idx++
+                    leftElement < rightElement -> continue@leftLoop
+                }
+            }
+        }
+        return false
+    }
+
+    private fun getPositioned(vararg words: String): Documents? {
+        val wordEntries = words.map {
+            entries[it]?.documents ?: return@getPositioned null
+        }
+        val crossed = wordEntries.asSequence()
+            .map {
+                it.filter { (_, value) -> value != null }.map { entry -> entry.key }
+            }.map { it.keySet }
+            .reduce(::cross)
+        return Documents(iterator {
+            documentLoop@ for (document in crossed) {
+                for ((prevWordDocs, nextWordDocs) in wordEntries.zipWithNext()) {
+                    val prevDoc = prevWordDocs[document]!!
+                    val nextDoc = nextWordDocs[document]!!
+                    if (!containsWithin(prevDoc, nextDoc, 1)) continue@documentLoop
+                }
+                yield(document)
+            }
+        })
+    }
+
+    private fun getPositioned(vararg spacedWords: SpacedWord): Documents? {
+        val wordEntries = spacedWords.map { (word, space) ->
+            (entries[word]?.documents ?: return@getPositioned null) to space
+        }
+        val crossed = wordEntries.asSequence()
+            .map { it.first.keys.keySet }
+            .reduce(::cross)
+        return Documents(iterator {
+            documentLoop@ for (document in crossed) {
+                for ((prev, next) in wordEntries.zipWithNext()) {
+                    val (prevWordDocs) = prev
+                    val (nextWordDocs, spaced) = next
+                    val prevDoc = prevWordDocs[document]!!
+                    val nextDoc = nextWordDocs[document]!!
+                    if (!containsWithin(prevDoc, nextDoc, spaced)) continue@documentLoop
+                }
+                yield(document)
+            }
+        })
+    }
+
+    private fun getDouble(first: String, second: String): Documents? =
+        entries[second]?.previous?.get(first)?.keySet
+
+    private fun getDouble(vararg words: String): Documents? =
+        words.asSequence()
+            .zipWithNext()
+            .map { (first, second) -> getDouble(first, second) }
+            .let { docs ->
+                if (docs.any { it == null }) null
+                else docs.filterNotNull().reduce(::cross)
+            }
+
+    private fun getSingle(word: String): Documents? =
+        entries[word]?.documents?.keys?.keySet
+
+    private fun getSingle(vararg words: String): Documents? =
+        words.asSequence().map(::getSingle).let { docs ->
+            if (docs.any { it == null }) null
+            else docs.filterNotNull().reduce(::cross)
+        }
 
     @Transient
     val nearRegex = Regex("/\\d+")
+
     fun eval(query: String): Documents {
         val words = query.split(Regex(" +")).filter { it.isNotBlank() }
         return when {
@@ -123,30 +217,11 @@ class Dictionary(
     }
 }
 
-//TODO: Return inline classes and make them serializable
 @Serializable
-data class DictionaryEntry(val counts: TreeMap<DocumentID, Int> = TreeMap()) {
-    override fun toString() =
-        buildString {
-            append("DictionaryEntry(counts=[")
-            for ((document, count) in counts) {
-                append(document.id)
-                append(':')
-                append(count)
-                append(", ")
-            }
-            append("])")
-        }
+data class DictionaryEntry(
+    @Serializable(with = TreeMapArraySerializer::class)
+    val documents: TreeMap<DocumentID, ArrayList<Int>?> = TreeMap(),
 
-    @Serializer(forClass = DictionaryEntry::class)
-    companion object : KSerializer<DictionaryEntry> {
-        private val serializer = TreeMapArraySerializer(DocumentID.serializer(), Int.serializer())
-        override val descriptor: SerialDescriptor = serializer.descriptor
-        override fun deserialize(decoder: Decoder) =
-            DictionaryEntry(decoder.decodeSerializableValue(serializer))
-
-        override fun serialize(encoder: Encoder, obj: DictionaryEntry) {
-            encoder.encodeSerializableValue(serializer, obj.counts)
-        }
-    }
-}
+    @Serializable(with = TreeMapArraySerializer::class)
+    var previous: TreeMap<String, @Serializable(with = PriorityQueueSerializer::class) PriorityQueue<DocumentID>>? = null
+)
