@@ -38,7 +38,6 @@ val boolArguments = hashSetOf(
     "n",
     "verbose",
     "v",
-    "disable-single-word",
     "disable-double-word",
     "disable-position"
 )
@@ -57,7 +56,6 @@ fun main(args: Array<String>) {
 
     val shouldNegate = "n" in parsed.booleans
     val verbose = "v" in parsed.booleans || "verbose" in parsed.booleans
-    val singleWord = "disable-single-word" !in parsed.booleans
     val doubleWord = "disable-double-word" !in parsed.booleans
     val positioned = "disable-position" !in parsed.booleans
 
@@ -75,28 +73,28 @@ fun main(args: Array<String>) {
         }
         val dict = json.parse(Dictionary.serializer(), string)
         if (verbose) {
-            if (singleWord != dict.singleWord) {
-                println("Mismatch in read dict and arguments: " +
-                        "disable-single-word is set to ${!singleWord} in args " +
-                        "and to ${!dict.singleWord} in read dictionary. " +
-                        "Falling back to ${!dict.singleWord}, and ignoring commandline argument")
-            }
             if (doubleWord != dict.doubleWord) {
-                println("Mismatch in read dict and arguments: " +
-                        "disable-double-word is set to ${!doubleWord} in args " +
-                        "and to ${!dict.doubleWord} in read dictionary. " +
-                        "Falling back to ${!dict.doubleWord}, and ignoring commandline argument")
+                println(
+                    """"WARNING: Mismatch in read dict and arguments: 
+                       |disable-double-word is set to ${!doubleWord} in args and to ${!dict.doubleWord} in read dictionary.
+                       |May result in worse performance and/or worse accuracy.
+                       |Changed dict type to respect current settings. This will introduce inconsistency with newly indexed data"""
+                )
             }
             if (positioned != dict.position) {
-                println("Mismatch in read dict and arguments: " +
-                        "disable-position is set to ${!positioned} in args " +
-                        "and to ${!dict.position} in read dictionary. " +
-                        "Falling back to ${!dict.position}, and ignoring commandline argument")
+                println(
+                    """WARNING: Mismatch in read dict and arguments: 
+                      |disable-position is set to ${!positioned} in args and to ${!dict.position} in read dictionary.
+                      |May result in worse performance and/or worse accuracy.
+                      |Changed dict type to respect current settings. This will introduce inconsistency with newly indexed data"""
+                )
             }
         }
-        dict
+        dict.also {
+            it.doubleWord = doubleWord
+            it.position = positioned
+        }
     } else Dictionary(
-        singleWord = singleWord,
         doubleWord = doubleWord,
         position = positioned
     )
@@ -131,13 +129,10 @@ fun main(args: Array<String>) {
             var prev: String? = null
             br.lineSequence()
                 .flatMap { it.split(Regex("\\W+")).asSequence() }
-                .filter  { it.isNotBlank() }
-                .map     { it.toLowerCase() }
+                .filter { it.isNotBlank() }
+                .map { it.toLowerCase() }
                 .forEachIndexed { idx, word ->
-                    dict.add(word, idx, id)
-                    if (prev != null) {
-                        dict.add(prev!!, word, id)
-                    }
+                    dict.add(word, position = idx, from = id, prev = prev)
                     prev = word
                 }
             br.close()
@@ -171,10 +166,10 @@ fun main(args: Array<String>) {
 
     // REPL
     if ("i" in parsed.booleans || "interactive" in parsed.booleans) {
-        val eval = EvalContext (
+        val eval = EvalContext(
             fromID = dict::eval,
-            unite = ::unite,
-            cross = ::cross,
+            unite  = ::unite,
+            cross  = ::cross,
             negate = ::negate
         )
         println("Started interactive REPL session.")
