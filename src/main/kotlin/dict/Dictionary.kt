@@ -4,22 +4,9 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 import util.*
 import java.util.*
-import kotlin.collections.Iterable
-import kotlin.collections.Iterator
-import kotlin.collections.List
-import kotlin.collections.any
-import kotlin.collections.arrayListOf
-import kotlin.collections.asSequence
 import kotlin.collections.component1
 import kotlin.collections.component2
-import kotlin.collections.contains
-import kotlin.collections.filter
-import kotlin.collections.getOrPut
-import kotlin.collections.iterator
-import kotlin.collections.map
 import kotlin.collections.set
-import kotlin.collections.toTypedArray
-import kotlin.collections.zipWithNext
 
 typealias Documents = KeySet<DocumentID>
 
@@ -211,10 +198,6 @@ class Dictionary(
 
     val documents: Iterator<DocumentID> get() = _documents.keys.iterator()
 
-    companion object {
-        //TODO: version validation
-        const val _VERSION = "0.3.0"
-    }
 }
 
 @Serializable

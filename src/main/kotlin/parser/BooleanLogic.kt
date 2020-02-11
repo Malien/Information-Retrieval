@@ -124,25 +124,24 @@ class EvalContext<T>(
 }
 
 val tokensRegex = Regex("[&|!()]|([a-zA-Z0-9_]+( +[a-zA-Z0-9_/]+)*)")
-fun tokenize(str: String): Queue<Terminal> {
-    val queue = ArrayDeque<Terminal>()
-    tokensRegex.findAll(str)
-        .map { it.groups[0]?.value }
-        .filterNotNull()
-        .map { it.toLowerCase() }
-        .map {
-            when (it) {
-                "&" -> and
-                "|" -> or
-                "!" -> not
-                "(" -> obracket
-                ")" -> cbracket
-                else -> Terminal("id", it)
+fun tokenize(str: String): Queue<Terminal> =
+    ArrayDeque<Terminal>().also { queue ->
+        tokensRegex.findAll(str)
+            .map { it.groups[0]?.value }
+            .filterNotNull()
+            .map { it.toLowerCase() }
+            .map {
+                when (it) {
+                    "&" -> and
+                    "|" -> or
+                    "!" -> not
+                    "(" -> obracket
+                    ")" -> cbracket
+                    else -> Terminal("id", it)
+                }
             }
-        }
-        .toCollection(queue)
-    return queue
-}
+            .toCollection(queue)
+    }
 
 fun main() {
     val tokens = tokenize("A & !(B | C)")
