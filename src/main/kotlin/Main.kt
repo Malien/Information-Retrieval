@@ -41,7 +41,8 @@ val boolArguments = hashSetOf(
     "disable-double-word",
     "disable-position"
 )
-val stringArguments = hashMapOf<String, String?>("execute" to null, "find" to null, "o" to null, "from" to null)
+val stringArguments =
+    hashMapOf<String, String?>("execute" to null, "find" to null, "o" to null, "from" to null)
 
 val json = Json(JsonConfiguration.Stable)
 
@@ -168,8 +169,8 @@ fun main(args: Array<String>) {
     if ("i" in parsed.booleans || "interactive" in parsed.booleans) {
         val eval = EvalContext(
             fromID = dict::eval,
-            unite  = ::unite,
-            cross  = ::cross,
+            unite = ::unite,
+            cross = ::cross,
             negate = ::negate
         )
         println("Started interactive REPL session.")
