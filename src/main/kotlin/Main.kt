@@ -39,7 +39,9 @@ val boolArguments = hashSetOf(
     "verbose",
     "v",
     "disable-double-word",
-    "disable-position"
+    "disable-position",
+    "disable-prefix",
+    "disable-suffix"
 )
 val stringArguments =
     hashMapOf<String, String?>("execute" to null, "find" to null, "o" to null, "from" to null)
@@ -59,6 +61,8 @@ fun main(args: Array<String>) {
     val verbose = "v" in parsed.booleans || "verbose" in parsed.booleans
     val doubleWord = "disable-double-word" !in parsed.booleans
     val positioned = "disable-position" !in parsed.booleans
+    val suffix = "disable-suffix" !in parsed.booleans
+    val prefix = "disable-prefix" !in parsed.booleans
 
     // Load dict
     val from = parsed.strings["from"]
@@ -90,6 +94,22 @@ fun main(args: Array<String>) {
                       |Changed dict type to respect current settings. This will introduce inconsistency with newly indexed data"""
                 )
             }
+            if (prefix != dict.prefix) {
+                println(
+                    """WARNING: Mismatch in read dict and arguments: 
+                      |disable-prefix is set to ${!prefix} in args and to ${!dict.prefix} in read dictionary.
+                      |May result in worse performance and/or worse accuracy.
+                      |Changed option to respect dictionary's settings"""
+                )
+            }
+            if (suffix != dict.suffix) {
+                println(
+                    """WARNING: Mismatch in read dict and arguments: 
+                      |disable-suffix is set to ${!suffix} in args and to ${!dict.suffix} in read dictionary.
+                      |May result in worse performance and/or worse accuracy.
+                      |Changed option to respect dictionary's settings"""
+                )
+            }
         }
         dict.also {
             it.doubleWord = doubleWord
@@ -97,7 +117,9 @@ fun main(args: Array<String>) {
         }
     } else Dictionary(
         doubleWord = doubleWord,
-        position = positioned
+        position = positioned,
+        prefix =  prefix,
+        suffix = suffix
     )
 
     // List of files to index

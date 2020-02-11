@@ -4,6 +4,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 import util.*
 import java.util.*
+import kotlin.collections.HashSet
 import kotlin.collections.component1
 import kotlin.collections.component2
 import kotlin.collections.set
@@ -17,10 +18,15 @@ data class SpacedWord(val word: String, val spaced: Int)
 @Serializable
 class Dictionary(
     var doubleWord: Boolean = true,
-    var position: Boolean = true
+    var position: Boolean = true,
+    var prefix: Boolean = true,
+    val suffix: Boolean = true
 ) {
     @Serializable(with = TreeMapArraySerializer::class)
     private val entries = TreeMap<String, DictionaryEntry>()
+
+    private val prefixTree = if (prefix) PrefixTree() else null
+    private val suffixTree = if (suffix) PrefixTree() else null
 
     private var _total = 0
 
@@ -50,10 +56,15 @@ class Dictionary(
             val docs = entry.previous!!.getOrPut(prev) { PriorityQueue() }
             docs.add(from)
         }
+
+        if (prefix) prefixTree?.add(word)
+        if (suffix) suffixTree?.add(word.reversed())
     }
 
     fun get(word: String): Documents =
-        getSingle(word) ?: emptyDocuments()
+        //TODO: temporary place here
+        if ('*' in word) getStar(word).asSequence().map { getSingle(it)?.keySet ?: emptyDocuments() }.reduce(::unite)
+        else getSingle(word) ?: emptyDocuments()
 
     fun get(first: String, second: String): Documents =
         (if (doubleWord) getDouble(first, second) else null)
@@ -93,6 +104,39 @@ class Dictionary(
             }
         }
         return false
+    }
+
+    @Transient
+    val firstRegex = Regex("""\w+\*""")
+    @Transient
+    val lastRegex = Regex("""\*\w+""")
+
+    private fun getStar(word: String): Iterator<String> {
+        if (!prefix && !suffix)
+            throw UnsupportedOperationException("Can't search with wildcards without prefix or suffix support")
+        val first = if (prefix) firstRegex.find(word)?.value else null
+        val last = if (suffix) lastRegex.find(word)?.value else null
+
+        val fres = if (first != null && prefixTree != null) {
+            HashSet<String>().apply {
+                for (res in prefixTree.query(first.dropLast(1))) add(res)
+            }
+        } else null
+
+        val lres = if (last != null && suffixTree != null) {
+            HashSet<String>().apply {
+                for (res in suffixTree.query(last.drop(1).reversed())) add(res.reversed())
+            }
+        } else null
+
+        val phraseRegex = Regex(word.replace("*", ".*"))
+
+        return when {
+            fres != null && lres != null -> fres.intersect(lres)
+            lres != null -> lres
+            fres != null -> fres
+            else -> emptySet()
+        }.filter { phraseRegex.matches(it) }.iterator()
     }
 
     private fun getPositioned(vararg words: String): Documents? {
@@ -163,26 +207,28 @@ class Dictionary(
 
     fun eval(query: String): Documents {
         val words = query.split(Regex(" +")).filter { it.isNotBlank() }
-        return when {
-            words.isEmpty() -> emptyDocuments()
-            words.size == 1 -> get(words[0])
-            words.size == 2 -> get(words[0], words[1])
-            words.any { nearRegex.matches(it) } -> {
-                val s = sequence<SpacedWord> {
-                    var space = 0
-                    for (word in words) {
-                        space = if (nearRegex.matches(word)) {
-                            word.drop(1).toInt()
-                        } else {
-                            yield(SpacedWord(word, space + 1))
-                            0
-                        }
+        return eval(words)
+    }
+
+    fun eval(words: List<String>): Documents = when {
+        words.isEmpty() -> emptyDocuments()
+        words.size == 1 -> get(words[0])
+        words.size == 2 -> get(words[0], words[1])
+        words.any { nearRegex.matches(it) } -> {
+            val s = sequence<SpacedWord> {
+                var space = 0
+                for (word in words) {
+                    space = if (nearRegex.matches(word)) {
+                        word.drop(1).toInt()
+                    } else {
+                        yield(SpacedWord(word, space + 1))
+                        0
                     }
                 }
-                get(*s.toMutableList().toTypedArray())
             }
-            else -> get(*words.toTypedArray())
+            get(*s.toMutableList().toTypedArray())
         }
+        else -> get(*words.toTypedArray())
     }
 
     fun registerDocument(path: String): DocumentID =
