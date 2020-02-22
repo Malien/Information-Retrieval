@@ -69,7 +69,7 @@ class Dictionary(
 
     private val relocation = if (jokerType == JokerDictType.Relocation) RelocationDict() else null
 
-    var totalWords :Int = 0
+    var totalWords: Int = 0
         private set
     val uniqueWords: Int get() = entries.size
 
@@ -151,13 +151,15 @@ class Dictionary(
     }
 
     private fun getStar(word: String): Iterator<String> =
-        relocation?.getStar(word)
-            ?: prefix?.getStar(word)
+        prefix?.getStar(word)
             ?: trigram?.getStar(word)
+            ?: relocation?.getStar(word)
             ?: if (jokerType == null)
-                throw UnsupportedOperationException("Joker search requires joker dict to be provided." +
-                        " See joker commandline argument")
-                else iterator {}
+                throw UnsupportedOperationException(
+                    "Joker search requires joker dict to be provided." +
+                            " See joker commandline argument"
+                )
+            else iterator {}
 
     private fun getPositioned(vararg words: String): Documents? {
         val wordEntries = words.map {
