@@ -123,7 +123,7 @@ class EvalContext<T>(
     operator fun invoke(tree: BooleanLogicParseTree) = eval(tree)
 }
 
-val tokensRegex = Regex("[&|!()]|([a-zA-Z0-9_]+( +[a-zA-Z0-9_/*]+)*)")
+val tokensRegex = Regex("[&|!()]|([a-zA-Z0-9_*]+( +[a-zA-Z0-9_/*]+)*)")
 fun tokenize(str: String): Queue<Terminal> =
     ArrayDeque<Terminal>().also { queue ->
         tokensRegex.findAll(str)

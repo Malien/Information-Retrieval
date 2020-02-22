@@ -1,10 +1,12 @@
 package dict
 
+import dict.joker.PrefixDict
+import dict.joker.RelocationDict
+import dict.joker.TriGramDict
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 import util.*
 import java.util.*
-import kotlin.collections.HashSet
 import kotlin.collections.component1
 import kotlin.collections.component2
 import kotlin.collections.set
@@ -15,22 +17,60 @@ fun emptyDocuments() = Documents(iterator {})
 
 data class SpacedWord(val word: String, val spaced: Int)
 
+enum class JokerDictType {
+    PrefixTree,
+    TriGram,
+    Relocation;
+
+    companion object {
+        class UnknownTypeError(msg: String) : Error(msg)
+
+        fun fromArgument(argument: String): JokerDictType = when (argument) {
+            "prefix-tree" -> PrefixTree
+            "trigram" -> TriGram
+            "relocation" -> Relocation
+            else -> throw UnknownTypeError("Unknown joker dict type $argument")
+        }
+    }
+}
+//
+//@Serializable
+//data class TriGram(val first: Char, val second: Char, val third: Char): Comparable<TriGram> {
+//    constructor(from: String) : this(from[0], from[1], from[2])
+//
+//    override fun compareTo(other: TriGram): Int {
+//        var cmp = first.compareTo(other.first)
+//        if (cmp == 0) cmp = second.compareTo(other.second)
+//        if (cmp == 0) cmp = third.compareTo(other.third)
+//        return cmp
+//    }
+//
+//    operator fun get(idx: Int): Char = when (idx) {
+//        0 -> first
+//        1 -> second
+//        2 -> third
+//        else -> throw IndexOutOfBoundsException("Trigrams can only be indexed from 0 to 2")
+//    }
+//}
+
 @Serializable
 class Dictionary(
     var doubleWord: Boolean = true,
     var position: Boolean = true,
-    var prefix: Boolean = true,
-    val suffix: Boolean = true
+    val jokerType: JokerDictType? = null
 ) {
     @Serializable(with = TreeMapArraySerializer::class)
     private val entries = TreeMap<String, DictionaryEntry>()
 
-    private val prefixTree = if (prefix) PrefixTree() else null
-    private val suffixTree = if (suffix) PrefixTree() else null
+    private val prefix = if (jokerType == JokerDictType.PrefixTree) PrefixDict() else null
 
-    private var _total = 0
+    @Serializable(with = TreeMapArraySerializer::class)
+    private val trigram = if (jokerType == JokerDictType.TriGram) TriGramDict() else null
 
-    val totalWords: Int get() = _total
+    private val relocation = if (jokerType == JokerDictType.Relocation) RelocationDict() else null
+
+    var totalWords :Int = 0
+        private set
     val uniqueWords: Int get() = entries.size
 
     @Serializable(with = TreeMapArraySerializer::class)
@@ -41,7 +81,7 @@ class Dictionary(
      * Positions should be inserted only in sorted order
      */
     fun add(word: String, from: DocumentID, position: Int = -1, prev: String? = null) {
-        _total++
+        totalWords++
         val entry = entries.getOrPut(word) { DictionaryEntry() }
 
         if (this.doubleWord && position != -1) {
@@ -57,8 +97,12 @@ class Dictionary(
             docs.add(from)
         }
 
-        if (prefix) prefixTree?.add(word)
-        if (suffix) suffixTree?.add(word.reversed())
+        when (jokerType) {
+            JokerDictType.PrefixTree -> prefix
+            JokerDictType.TriGram -> trigram
+            JokerDictType.Relocation -> relocation
+            else -> null
+        }?.add(word)
     }
 
     fun get(word: String): Documents =
@@ -106,38 +150,14 @@ class Dictionary(
         return false
     }
 
-    @Transient
-    val firstRegex = Regex("""\w+\*""")
-    @Transient
-    val lastRegex = Regex("""\*\w+""")
-
-    private fun getStar(word: String): Iterator<String> {
-        if (!prefix && !suffix)
-            throw UnsupportedOperationException("Can't search with wildcards without prefix or suffix support")
-        val first = if (prefix) firstRegex.find(word)?.value else null
-        val last = if (suffix) lastRegex.find(word)?.value else null
-
-        val fres = if (first != null && prefixTree != null) {
-            HashSet<String>().apply {
-                for (res in prefixTree.query(first.dropLast(1))) add(res)
-            }
-        } else null
-
-        val lres = if (last != null && suffixTree != null) {
-            HashSet<String>().apply {
-                for (res in suffixTree.query(last.drop(1).reversed())) add(res.reversed())
-            }
-        } else null
-
-        val phraseRegex = Regex(word.replace("*", ".*"))
-
-        return when {
-            fres != null && lres != null -> fres.intersect(lres)
-            lres != null -> lres
-            fres != null -> fres
-            else -> emptySet()
-        }.filter { phraseRegex.matches(it) }.iterator()
-    }
+    private fun getStar(word: String): Iterator<String> =
+        relocation?.getStar(word)
+            ?: prefix?.getStar(word)
+            ?: trigram?.getStar(word)
+            ?: if (jokerType == null)
+                throw UnsupportedOperationException("Joker search requires joker dict to be provided." +
+                        " See joker commandline argument")
+                else iterator {}
 
     private fun getPositioned(vararg words: String): Documents? {
         val wordEntries = words.map {
@@ -210,7 +230,7 @@ class Dictionary(
         return eval(words)
     }
 
-    fun eval(words: List<String>): Documents = when {
+    private fun eval(words: List<String>): Documents = when {
         words.isEmpty() -> emptyDocuments()
         words.size == 1 -> get(words[0])
         words.size == 2 -> get(words[0], words[1])

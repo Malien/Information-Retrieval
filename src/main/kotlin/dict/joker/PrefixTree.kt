@@ -1,4 +1,4 @@
-package dict
+package dict.joker
 
 import kotlinx.serialization.Serializable
 
