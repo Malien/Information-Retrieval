@@ -114,8 +114,8 @@ fun <T : Comparable<T>> negate(set: KeySet<T>) = KeySet(set.iterator, !set.negat
 
 operator fun <T:Comparable<T>> KeySet<T>.not() = negate(this)
 // not sure about those ones
-operator fun <T:Comparable<T>> KeySet<T>.times(other: KeySet<T>) = cross(this, other)
-operator fun <T:Comparable<T>> KeySet<T>.plus(other: KeySet<T>) = unite(this, other)
+infix fun <T:Comparable<T>> KeySet<T>.and(other: KeySet<T>) = cross(this, other)
+infix fun <T:Comparable<T>> KeySet<T>.or (other: KeySet<T>) = unite(this, other)
 
 private fun <T : Comparable<T>> test(set: KeySet<T>) {
     println(if (set.negated) "negated" else "straight")

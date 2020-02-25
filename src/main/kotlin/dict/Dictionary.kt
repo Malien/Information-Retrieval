@@ -33,25 +33,6 @@ enum class JokerDictType {
         }
     }
 }
-//
-//@Serializable
-//data class TriGram(val first: Char, val second: Char, val third: Char): Comparable<TriGram> {
-//    constructor(from: String) : this(from[0], from[1], from[2])
-//
-//    override fun compareTo(other: TriGram): Int {
-//        var cmp = first.compareTo(other.first)
-//        if (cmp == 0) cmp = second.compareTo(other.second)
-//        if (cmp == 0) cmp = third.compareTo(other.third)
-//        return cmp
-//    }
-//
-//    operator fun get(idx: Int): Char = when (idx) {
-//        0 -> first
-//        1 -> second
-//        2 -> third
-//        else -> throw IndexOutOfBoundsException("Trigrams can only be indexed from 0 to 2")
-//    }
-//}
 
 @Serializable
 class Dictionary(
@@ -69,13 +50,11 @@ class Dictionary(
 
     private val relocation = if (jokerType == JokerDictType.Relocation) RelocationDict() else null
 
+    val documents = DocumentRegistry()
+
     var totalWords: Int = 0
         private set
     val uniqueWords: Int get() = entries.size
-
-    @Serializable(with = TreeMapArraySerializer::class)
-    private val _documents: TreeMap<DocumentID, String> = TreeMap()
-    private var documentCount = 0
 
     /**
      * Positions should be inserted only in sorted order
@@ -227,10 +206,8 @@ class Dictionary(
     @Transient
     val nearRegex = Regex("/\\d+")
 
-    fun eval(query: String): Documents {
-        val words = query.split(Regex(" +")).filter { it.isNotBlank() }
-        return eval(words)
-    }
+    fun eval(query: String): Documents =
+        query.split(Regex(" +")).filter { it.isNotBlank() }.let { eval(it) }
 
     private fun eval(words: List<String>): Documents = when {
         words.isEmpty() -> emptyDocuments()
@@ -252,19 +229,6 @@ class Dictionary(
         }
         else -> get(*words.toTypedArray())
     }
-
-    fun registerDocument(path: String): DocumentID =
-        DocumentID(documentCount++).also { _documents[it] = path }
-
-    fun deregisterDocument(id: DocumentID) =
-        if (id in _documents) {
-            _documents.remove(id)
-            true
-        } else false
-
-    fun documentPath(id: DocumentID) = _documents[id]
-
-    val documents: Iterator<DocumentID> get() = _documents.keys.iterator()
 
 }
 

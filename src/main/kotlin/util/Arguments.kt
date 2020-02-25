@@ -23,6 +23,7 @@ fun parseArgs(defaults: DefaultArguments, args: Array<String>) : ArgumentMap {
         if (flag != null) {
             if (flag in nums) nums[flag] = arg.toDouble()
             else strs[flag] = arg
+            flag = null
         } else {
             if (arg.startsWith("-")) {
                 val stripped = arg.drop(1)
