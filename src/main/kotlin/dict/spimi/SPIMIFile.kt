@@ -11,26 +11,73 @@ class SPIMIFile(file: File) : Closeable, Iterable<WordPair>, RandomAccess {
     private val stringsCache by lazy {
         HashMap<UInt, String>()
     }
-    val flags: UInt
-    val headerSize: UInt
+    private val documentsCache by lazy {
+        HashMap<UInt, Array<DocumentID>>()
+    }
+
+    private var stringsStream: RandomAccessFile? = null
+    private var documentsStream: RandomAccessFile? = null
+    val flags: SPIMIFlags
+    val stringsBlockSize: UInt
+    val documentsBlockSize: UInt
     val entries: UInt
+    val headerSize get() = HEADER_SIZE + stringsBlockSize + documentsBlockSize
 
     init {
-        val options = fileStream.readLong().toULong()
-        val (flags, headerSize) = split(options)
-        this.flags = flags
-        this.headerSize = headerSize
-        entries = 0u // TODO
-//            ((fileStream.length().toULong() - HEADER_FLAG_SIZE - HEADER_LENGTH_SIZE - headerSize) / ENTRY_SIZE).toUInt()
+        val flagsVal = fileStream.readInt().toUInt()
+        stringsBlockSize = fileStream.readInt().toUInt()
+        documentsBlockSize = fileStream.readInt().toUInt()
+        this.flags = SPIMIFlags(flagsVal)
+        entries =
+            ((fileStream.length().toULong() - headerSize) / flags.entrySize).toUInt()
+        if (flags.es) {
+            val buffer = ByteArray(stringsBlockSize.toInt())
+            fileStream.seek(HEADER_SIZE.toLong())
+            fileStream.read(buffer)
+            val path = String(buffer)
+            stringsStream = RandomAccessFile(path, "r")
+        }
+        if (flags.ed && flags.db) {
+            val buffer = ByteArray(documentsBlockSize.toInt())
+            fileStream.seek((HEADER_SIZE + stringsBlockSize).toLong())
+            fileStream.read(buffer)
+            val path = String(buffer)
+            documentsStream = RandomAccessFile(path, "r")
+        }
     }
 
     fun getString(pos: UInt) =
         stringsCache.getOrPut(pos) {
-            fileStream.seek(pos.toLong())
-            val length = fileStream.readInt()
+            val stream = stringsStream ?: fileStream
+            stream.seek(pos.toLong())
+            val length =
+                flags.slcAction({ stream.readInt() }, { stream.readShort().toInt() }, { stream.readByte().toInt() })
             val bytestring = ByteArray(length)
             fileStream.read(bytestring)
             String(bytestring)
+        }
+
+    fun getDocuments(pos: UInt) =
+        documentsCache.getOrPut(pos) {
+            val stream = documentsStream ?: fileStream
+            stream.seek(pos.toLong())
+            val length =
+                flags.dscAction(
+                    { stream.readInt().toUInt() },
+                    { stream.readShort().toUInt() },
+                    { stream.readByte().toUInt() })
+            val bytedocs = ByteArray((length * flags.documentIDSize).toInt())
+            fileStream.read(bytedocs)
+            val docIdSize = flags.documentIDSize.toInt()
+            Array(length.toInt()) {
+                val idx = it * docIdSize
+                DocumentID(
+                    flags.dicAction(
+                        { bytedocs.decodeInt(idx) },
+                        { bytedocs.decodeShort(idx) },
+                        { bytedocs[idx].toInt() })
+                )
+            }
         }
 
     operator fun get(idx: UInt): WordPair {

@@ -8,7 +8,6 @@ data class SPIMIFlags(var flags: UInt = 0u) {
     operator fun set(idx: Int, flag: Boolean) {
         val value = if (flag) 1u else 0u
         flags = flags and (1u shl idx).inv() or (value shl idx)
-//        flags = flags xor ((value.inv() xor flags) and (1u shl idx))
     }
 
     inline fun <T> compressionAction(idx: Int, big: () -> T, medium: () -> T, small: () -> T): T =
@@ -32,11 +31,13 @@ data class SPIMIFlags(var flags: UInt = 0u) {
     inline fun <T> dpcAction(big: () -> T, medium: () -> T, small: () -> T): T =
         compressionAction(8, big, medium, small)
 
-    inline val stringLengthSize get() = slcAction({ 4 }, { 2 }, { 1 })
-    inline val stringPointerSize get() = spcAction({ 4 }, { 2 }, { 1 })
-    inline val documentBlockSize get() = dscAction({ 4 }, { 2 }, { 1 })
-    inline val documentIDSize get() = dicAction({ 4 }, { 2 }, { 1 })
-    inline val documentPointerSize get() = spcAction({ 4 }, { 2 }, { 1 })
+    inline val stringLengthSize get() = slcAction({ 4u }, { 2u }, { 1u })
+    inline val stringPointerSize get() = spcAction({ 4u }, { 2u }, { 1u })
+    inline val documentBlockSize get() = dscAction({ 4u }, { 2u }, { 1u })
+    inline val documentIDSize get() = dicAction({ 4u }, { 2u }, { 1u })
+    inline val documentPointerSize get() = spcAction({ 4u }, { 2u }, { 1u })
+
+    val entrySize get() = stringPointerSize + if (db) documentPointerSize else documentIDSize
 
     var slc
         get() = get(0)

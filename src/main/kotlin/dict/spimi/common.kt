@@ -166,8 +166,17 @@ inline class WordLong(val value: ULong) {
     val docID get() = value.toUInt()
     val pair get() = split(value)
 
-    constructor(wordID: UInt, docID: UInt): this(combine(wordID, docID))
-    constructor(wordID: UInt, documentID: DocumentID): this(wordID, documentID.id.toUInt())
+    constructor(wordID: UInt, docID: UInt) : this(combine(wordID, docID))
+    constructor(wordID: UInt, documentID: DocumentID) : this(wordID, documentID.id.toUInt())
 
     override fun toString() = "WordLong(wordID=$wordID, docID=$docID)"
 }
+
+fun ByteArray.decodeLong(at: Int) =
+    decodeInt(at).toLong() shl 32 + decodeInt(at+4)
+
+fun ByteArray.decodeInt(at: Int) =
+    this[at].toInt() shl 24 + this[at + 1].toInt() shl 16 + this[at + 2].toInt() shl 8 + this[at + 3]
+
+fun ByteArray.decodeShort(at: Int) =
+    this[at].toInt() shl 8 + this[at + 1]
