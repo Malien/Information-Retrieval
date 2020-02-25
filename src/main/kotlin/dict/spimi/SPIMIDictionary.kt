@@ -68,10 +68,10 @@ class SPIMIDictionary {
         }
 
         // Rest of the flags
-        val stringsEnd = out.filePointer.toULong()
+        val stringsSize = out.filePointer.toULong() - HEADER_SIZE
 
-        flags.spc = stringsEnd < UShort.MAX_VALUE
-        flags.spuc = stringsEnd < UByte.MAX_VALUE
+        flags.spc = stringsSize < UShort.MAX_VALUE
+        flags.spuc = stringsSize < UByte.MAX_VALUE
 
         for (i in 0 until size) {
             // TODO: Write whole buffer at once
@@ -84,7 +84,7 @@ class SPIMIDictionary {
 
         out.seek(0)
         out.writeInt(flags.flags.toInt())
-        out.writeInt(stringsEnd.toInt())
+        out.writeInt(stringsSize.toInt())
     }
 
 }

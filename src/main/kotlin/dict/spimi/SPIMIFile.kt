@@ -6,7 +6,7 @@ import java.io.File
 import java.io.RandomAccessFile
 
 @ExperimentalUnsignedTypes
-class SPIMIFile(file: File) : Closeable, Iterable<WordPair>, RandomAccess {
+class SPIMIFile(file: File) : Closeable, Iterable<SPIMIEntry>, RandomAccess {
     private val fileStream = RandomAccessFile(file, "r")
     private val stringsCache by lazy {
         HashMap<UInt, String>()
@@ -21,15 +21,15 @@ class SPIMIFile(file: File) : Closeable, Iterable<WordPair>, RandomAccess {
     val stringsBlockSize: UInt
     val documentsBlockSize: UInt
     val entries: UInt
-    val headerSize get() = HEADER_SIZE + stringsBlockSize + documentsBlockSize
+    val preambleSize get() = HEADER_SIZE + stringsBlockSize + documentsBlockSize
 
     init {
         val flagsVal = fileStream.readInt().toUInt()
         stringsBlockSize = fileStream.readInt().toUInt()
         documentsBlockSize = fileStream.readInt().toUInt()
-        this.flags = SPIMIFlags(flagsVal)
+        flags = SPIMIFlags(flagsVal)
         entries =
-            ((fileStream.length().toULong() - headerSize) / flags.entrySize).toUInt()
+            ((fileStream.length().toULong() - preambleSize) / flags.entrySize).toUInt()
         if (flags.es) {
             val buffer = ByteArray(stringsBlockSize.toInt())
             fileStream.seek(HEADER_SIZE.toLong())
@@ -51,7 +51,10 @@ class SPIMIFile(file: File) : Closeable, Iterable<WordPair>, RandomAccess {
             val stream = stringsStream ?: fileStream
             stream.seek(pos.toLong())
             val length =
-                flags.slcAction({ stream.readInt() }, { stream.readShort().toInt() }, { stream.readByte().toInt() })
+                flags.slcAction(
+                       big = { stream.readInt() },
+                    medium = { stream.readShort().toInt() },
+                     small = { stream.readByte().toInt() })
             val bytestring = ByteArray(length)
             fileStream.read(bytestring)
             String(bytestring)
@@ -63,9 +66,9 @@ class SPIMIFile(file: File) : Closeable, Iterable<WordPair>, RandomAccess {
             stream.seek(pos.toLong())
             val length =
                 flags.dscAction(
-                    { stream.readInt().toUInt() },
-                    { stream.readShort().toUInt() },
-                    { stream.readByte().toUInt() })
+                       big = { stream.readInt().toUInt() },
+                    medium = { stream.readShort().toUInt() },
+                     small = { stream.readByte().toUInt() })
             val bytedocs = ByteArray((length * flags.documentIDSize).toInt())
             fileStream.read(bytedocs)
             val docIdSize = flags.documentIDSize.toInt()
@@ -73,18 +76,57 @@ class SPIMIFile(file: File) : Closeable, Iterable<WordPair>, RandomAccess {
                 val idx = it * docIdSize
                 DocumentID(
                     flags.dicAction(
-                        { bytedocs.decodeInt(idx) },
-                        { bytedocs.decodeShort(idx) },
-                        { bytedocs[idx].toInt() })
+                           big = { bytedocs.decodeInt(idx) },
+                        medium = { bytedocs.decodeShort(idx) },
+                         small = { bytedocs[idx].toInt() })
                 )
             }
         }
 
-    operator fun get(idx: UInt): WordPair {
-        fileStream.seek((headerSize + idx * 0u /* TODO */).toLong())
-        val (strPtr, doc) = split(fileStream.readLong().toULong())
-        return WordPair(getString(strPtr), DocumentID(doc.toInt()))
+    /**
+     * Get string, document id pair at index
+     * @param idx: index at which entry should be located
+     * @throws UnsupportedOperationException: if is called with db flag set on.
+     *                                        In such getDocuments should be called instead
+     */
+    operator fun get(idx: UInt): SPIMIEntry {
+        if (flags.db) throw UnsupportedOperationException(
+            "Cannot retrieve entry from file with DB flag set on. Use getMulti(idx: UInt) instead"
+        )
+        fileStream.seek((preambleSize + idx * flags.entrySize).toLong())
+        val doc = flags.dicAction(
+            big = { fileStream.readInt().toUInt() },
+            medium = { fileStream.readShort().toUInt() },
+            small = { fileStream.readByte().toUInt() })
+        val strPtr = flags.spcAction(
+               big = { fileStream.readInt().toUInt() },
+            medium = { fileStream.readShort().toUInt() },
+             small = { fileStream.readByte().toUInt() })
+        return SPIMIEntry(getString(strPtr), DocumentID(doc.toInt()))
     }
+    /**
+     * Get string, array of document ids pair at index
+     * @param idx: index at which entry should be located
+     * @throws UnsupportedOperationException: if is called with db flag set off.
+     *                                        In such get should be called instead
+     */
+    fun getMulti(idx: UInt): SPIMIMultiEntry {
+        if (!flags.db) throw UnsupportedOperationException(
+            "Cannot retrieve multi-entry from file without DB flag set on. Use get(idx: UInt) instead"
+        )
+        fileStream.seek((preambleSize + idx * flags.entrySize).toLong())
+        val doc = flags.dpcAction(
+            big = { fileStream.readInt().toUInt() },
+            medium = { fileStream.readShort().toUInt() },
+            small = { fileStream.readByte().toUInt() })
+        val strPtr = flags.spcAction(
+               big = { fileStream.readInt().toUInt() },
+            medium = { fileStream.readShort().toUInt() },
+             small = { fileStream.readByte().toUInt() })
+        return SPIMIMultiEntry(getString(strPtr), getDocuments(doc))
+    }
+
+    fun getMulti(idx: Int) = getMulti(idx.toUInt())
 
     operator fun get(idx: Int) = get(idx.toUInt())
 
@@ -92,7 +134,8 @@ class SPIMIFile(file: File) : Closeable, Iterable<WordPair>, RandomAccess {
         fileStream.close()
     }
 
-    override fun iterator(): Iterator<WordPair> = iterator {
+    override fun iterator(): Iterator<SPIMIEntry> = iterator {
+        // TODO: Read blocks of entries instead of one at the time
         for (i in 0u until entries) {
             yield(get(i))
         }

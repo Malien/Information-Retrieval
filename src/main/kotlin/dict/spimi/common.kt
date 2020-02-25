@@ -2,7 +2,8 @@ package dict.spimi
 
 import dict.DocumentID
 
-typealias WordPair = Pair<String, DocumentID>
+typealias SPIMIEntry = Pair<String, DocumentID>
+typealias SPIMIMultiEntry = Pair<String, Array<DocumentID>>
 
 const val ENTRIES_COUNT = 10_000_000
 
@@ -23,8 +24,8 @@ SPIMI file structure:
     |---------|------------------------|--------------------------|---------------|-----------------|---------|
     |  flags  | strings block size (n) | documents block size (m) | strings block | documents block | entries |
     |_________|________________________|__________________________|_______________|_________________|_________|
-    |                                                header                                         |   body  |
-    |_______________________________________________________________________________________________|_________|
+    |                             header                          |               blocks            |   body  |
+    |_____________________________________________________________|_________________________________|_________|
 
 ABSTRACT:
     FILE POINTER:
@@ -85,6 +86,8 @@ HEADER:
             if UC then size = 1
             else size = 2
         } else size = 4
+
+BLOCKS:
 
     STRINGS:
         Length of strings block is written in the 4 bytes offset by the 4 bytes from the beginning of the file.

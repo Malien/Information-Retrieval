@@ -99,4 +99,25 @@ data class SPIMIFlags(var flags: UInt = 0u) {
         get() = get(14)
         set(value) = set(14, value)
 
+    override fun toString() = buildString {
+        append("SPIMIFlags(")
+        append(sequence {
+            if (slc) yield("SLC")
+            if (sluc) yield("SLUC")
+            if (spc) yield("SPC")
+            if (spuc) yield("SPUC")
+            if (dsc) yield("DSC")
+            if (dsuc) yield("DSUC")
+            if (dic) yield("DIC")
+            if (diuc) yield("DUIC")
+            if (dpc) yield("DPC")
+            if (dpuc) yield("DPUC")
+            if (ss) yield("SS")
+            if (ud) yield("UD")
+            if (db) yield("DB")
+            if (es) yield("ES")
+        }.joinToString(separator = ", "))
+        append(')')
+    }
+
 }

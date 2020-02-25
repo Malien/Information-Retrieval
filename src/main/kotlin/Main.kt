@@ -121,7 +121,9 @@ fun main(args: Array<String>) {
 
         if (saveLocation != null) {
             val file = dict.dumpToDir(saveLocation)
-            println(file.headerSize)
+            println(file.preambleSize)
+            println(file.flags)
+            println(file.get(0u))
         }
 
     } else {
