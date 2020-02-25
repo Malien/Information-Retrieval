@@ -35,6 +35,7 @@ build
 # Misc
 input
 out.json
+chunks
 
 # OS files
 .DS_Store

@@ -77,7 +77,7 @@ class SPIMIFile(file: File) : Closeable, Iterable<SPIMIEntry>, RandomAccess {
                 DocumentID(
                     flags.dicAction(
                            big = { bytedocs.decodeInt(idx) },
-                        medium = { bytedocs.decodeShort(idx) },
+                        medium = { bytedocs.decodeShort(idx).toInt() },
                          small = { bytedocs[idx].toInt() })
                 )
             }

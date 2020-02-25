@@ -2,6 +2,7 @@ package dict.spimi
 
 import dict.DocumentID
 import kotlinx.serialization.toUtf8Bytes
+import util.WriteBuffer
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.RandomAccessFile
@@ -48,6 +49,7 @@ class SPIMIDictionary {
     fun dump(file: File) {
         // TODO: Add guards to get notified if values overflow UInt32
         val out = RandomAccessFile(file, "rw")
+        val writeBuffer = WriteBuffer(size = 65536, onWrite = out::write)
 
         // Setting up flags
         val flags = SPIMIFlags()
@@ -57,30 +59,41 @@ class SPIMIDictionary {
         flags.diuc = maxDocID < UByte.MAX_VALUE
         flags.ss = sorted
 
-        out.write(ByteArray(12))
+        writeBuffer.skip(12)
         val mapping = HashMap<String, UInt>()
         for (string in strings) {
-            // TODO: accumulate buffer of strings to write
             val bytes = string.toUtf8Bytes()
             mapping[string] = out.filePointer.toUInt()
-            flags.slcAction({ out::writeInt }, { out::writeShort }, { out::writeByte })(bytes.size)
-            out.write(bytes)
+            flags.slcAction(
+                   big = { writeBuffer.add(bytes.size) },
+                medium = { writeBuffer.add(bytes.size.toShort()) },
+                 small = { writeBuffer.add(bytes.size.toByte()) }
+            )
+            writeBuffer.add(bytes)
         }
+        writeBuffer.flush()
 
         // Rest of the flags
         val stringsSize = out.filePointer.toULong() - HEADER_SIZE
-
         flags.spc = stringsSize < UShort.MAX_VALUE
         flags.spuc = stringsSize < UByte.MAX_VALUE
 
         for (i in 0 until size) {
-            // TODO: Write whole buffer at once
             val entry = WordLong(entries[i])
             val word = strings[entry.wordID.toInt()]
             val strPtr = mapping[word]!!
-            flags.dicAction({ out::writeInt }, { out::writeShort }, { out::writeByte })(entry.docID.toInt())
-            flags.spcAction({ out::writeInt }, { out::writeShort }, { out::writeByte })(strPtr.toInt())
+            flags.dicAction(
+                   big = { writeBuffer.add(entry.docID.toInt()) },
+                medium = { writeBuffer.add(entry.docID.toShort()) },
+                 small = { writeBuffer.add(entry.docID.toByte()) }
+            )
+            flags.spcAction(
+                   big = { writeBuffer.add(strPtr.toInt()) },
+                medium = { writeBuffer.add(strPtr.toShort()) },
+                 small = { writeBuffer.add(strPtr.toByte()) }
+            )
         }
+        writeBuffer.flush()
 
         out.seek(0)
         out.writeInt(flags.flags.toInt())
