@@ -2,7 +2,14 @@ package dict.spimi
 
 import dict.DocumentID
 
-typealias SPIMIEntry = Pair<String, DocumentID>
+//typealias SPIMIEntry = Pair<String, DocumentID>
+data class SPIMIEntry(val word: String, val document: DocumentID): Comparable<SPIMIEntry> {
+    override fun compareTo(other: SPIMIEntry): Int {
+        var cmp = word.compareTo(other.word)
+        if (cmp == 0) cmp = document.compareTo(other.document)
+        return cmp
+    }
+}
 typealias SPIMIMultiEntry = Pair<String, Array<DocumentID>>
 
 const val ENTRIES_COUNT = 10_000_000

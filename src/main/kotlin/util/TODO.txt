@@ -1,0 +1,6 @@
+TODO: Dumb and straight forward version of Quicksort with use of reified types and inline comparators
+TODO: java.util's DualPivotQuicksort with reified types and inline comparators
+TODO: Cache with invalidation based on access frequency
+TODO: Async buffered file writes
+TODO: Read buffer
+✓: Reducer

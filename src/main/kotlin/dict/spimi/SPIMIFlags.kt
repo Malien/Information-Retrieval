@@ -119,5 +119,4 @@ data class SPIMIFlags(var flags: UInt = 0u) {
         }.joinToString(separator = ", "))
         append(')')
     }
-
 }

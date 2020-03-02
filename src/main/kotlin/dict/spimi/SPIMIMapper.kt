@@ -11,7 +11,7 @@ import kotlin.collections.ArrayList
 import kotlin.collections.HashMap
 
 @ExperimentalUnsignedTypes
-class SPIMIDictionary {
+class SPIMIMapper {
 
     private val stringMap = HashMap<String, UInt>()
     private val strings = ArrayList<String>()
@@ -20,6 +20,7 @@ class SPIMIDictionary {
         private set
 
     private var sorted = false
+    private var unified = false
     private var maxWordLength = 0u
     private var maxDocID = 0u
 
@@ -27,12 +28,46 @@ class SPIMIDictionary {
         if (size == ENTRIES_COUNT) return false
         if (document.id.toUInt() > maxDocID) maxDocID = document.id.toUInt()
         if (word.length.toUInt() > maxWordLength) maxWordLength = word.length.toUInt()
+        sorted = false
+        unified = false
         val wordID = stringMap.getOrPut(word) {
             strings.add(word)
             (strings.size - 1).toUInt()
         }
         entries[size++] = WordLong(wordID, document).value
         return size != ENTRIES_COUNT
+    }
+
+    // TODO: Dude, this should be sorted in place with some sweet inline comparators
+    fun sort() {
+        entries
+            .sortedBy { strings[WordLong(it).wordID.toInt()] }
+            .forEachIndexed { idx, elem -> entries[idx] = elem }
+        sorted = true
+    }
+
+    fun unify() {
+        val seq = if (sorted) entries.asSequence() else {
+            val comparator = kotlin.Comparator.comparing<ULong, String> { strings[WordLong(it).wordID.toInt()] }
+                .thenComparingInt { WordLong(it).docID.toInt() }
+            entries.asSequence().sortedWith(comparator)
+        }
+        val res = sequence {
+            var prev: ULong? = null
+            for (sorted in seq) {
+                if (prev == null) prev = sorted
+                else if (prev != sorted) {
+                    prev = sorted
+                    yield(sorted)
+                }
+            }
+        }.toMutableList()
+        sorted = true
+        unified = true
+        size = res.size
+        for ((idx, entry) in res.withIndex()) {
+            entries[idx] = entry
+        }
     }
 
     fun dumpToDir(path: String) = dumpToDir(File(path))
@@ -60,10 +95,10 @@ class SPIMIDictionary {
         flags.ss = sorted
 
         writeBuffer.skip(12)
-        val mapping = HashMap<String, UInt>()
-        for (string in strings) {
+        val mapping = HashMap<UInt, UInt>()
+        for ((string, wordID) in stringMap) {
             val bytes = string.toUtf8Bytes()
-            mapping[string] = out.filePointer.toUInt()
+            mapping[wordID] = writeBuffer.bytesWritten.toUInt()
             flags.slcAction(
                    big = { writeBuffer.add(bytes.size) },
                 medium = { writeBuffer.add(bytes.size.toShort()) },
@@ -71,17 +106,15 @@ class SPIMIDictionary {
             )
             writeBuffer.add(bytes)
         }
-        writeBuffer.flush()
 
         // Rest of the flags
-        val stringsSize = out.filePointer.toULong() - HEADER_SIZE
+        val stringsSize = writeBuffer.bytesWritten.toULong() - HEADER_SIZE
         flags.spc = stringsSize < UShort.MAX_VALUE
         flags.spuc = stringsSize < UByte.MAX_VALUE
 
         for (i in 0 until size) {
             val entry = WordLong(entries[i])
-            val word = strings[entry.wordID.toInt()]
-            val strPtr = mapping[word]!!
+            val strPtr = mapping[entry.wordID]!!
             flags.dicAction(
                    big = { writeBuffer.add(entry.docID.toInt()) },
                 medium = { writeBuffer.add(entry.docID.toShort()) },
@@ -98,6 +131,7 @@ class SPIMIDictionary {
         out.seek(0)
         out.writeInt(flags.flags.toInt())
         out.writeInt(stringsSize.toInt())
+        out.close()
     }
 
 }

@@ -3,12 +3,22 @@ package util
 import dict.spimi.encodeInt
 import dict.spimi.encodeLong
 import dict.spimi.encodeShort
+import java.io.Closeable
 
-const val WRITE_BLOCK_SIZE = 4049
+const val WRITE_BLOCK_SIZE = 4096
 
-class WriteBuffer(val size: Int = WRITE_BLOCK_SIZE, val onWrite: (ByteArray, Int, Int) -> Unit) {
+// Might consider doing what java does and just wrap OutputStream instead of using callbacks
+// as it doesn't operate on anything else than streams of files
+class WriteBuffer(
+    val size: Int = WRITE_BLOCK_SIZE,
+    val onWrite: (ByteArray, Int, Int) -> Unit,
+    val onClose: () -> Unit = {}
+) : Closeable {
     val buffer = ByteArray(size)
     var ready = 0
+        private set
+    var bytesWritten = 0L
+        private set
 
     fun add(arr: ByteArray, offset: Int, length: Int) = dump(length) {
         System.arraycopy(arr, offset, buffer, ready, length)
@@ -39,12 +49,18 @@ class WriteBuffer(val size: Int = WRITE_BLOCK_SIZE, val onWrite: (ByteArray, Int
         ready = 0
     }
 
-    inline fun dump(size: Int, setFunc: () -> Unit) {
+    private inline fun dump(size: Int, setFunc: () -> Unit) {
         if (ready + size > buffer.size) {
             onWrite(buffer, 0, ready)
             ready = 0
         }
         setFunc()
         ready += size
+        bytesWritten += size
+    }
+
+    override fun close() {
+        flush()
+        onClose()
     }
 }

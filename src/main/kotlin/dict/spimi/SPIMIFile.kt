@@ -6,7 +6,7 @@ import java.io.File
 import java.io.RandomAccessFile
 
 @ExperimentalUnsignedTypes
-class SPIMIFile(file: File) : Closeable, Iterable<SPIMIEntry>, RandomAccess {
+class SPIMIFile(private val file: File) : Closeable, Iterable<SPIMIEntry>, RandomAccess {
     private val fileStream = RandomAccessFile(file, "r")
     private val stringsCache by lazy {
         HashMap<UInt, String>()
@@ -140,5 +140,25 @@ class SPIMIFile(file: File) : Closeable, Iterable<SPIMIEntry>, RandomAccess {
             yield(get(i))
         }
     }
+
+    val strings get() = iterator {
+        var pos = if (stringsStream != null) 0u else HEADER_SIZE
+        val stream = stringsStream ?: fileStream
+        while (pos < HEADER_SIZE + stringsBlockSize) {
+            stream.seek(pos.toLong())
+            val length = flags.slcAction(
+                   big = { stream.readInt() },
+                medium = { stream.readShort().toInt() },
+                 small = { stream.readByte().toInt() }
+            )
+            val bytestring = ByteArray(length)
+            stream.read(bytestring)
+            pos += flags.stringLengthSize
+            pos += length.toUInt()
+            yield(String(bytestring))
+        }
+    }
+
+    override fun toString() = "SPIMIFile(${file.toRelativeString(File("."))})"
 
 }

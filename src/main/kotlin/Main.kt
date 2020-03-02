@@ -1,7 +1,7 @@
 import dict.Dictionary
 import dict.DocumentRegistry
 import dict.JokerDictType
-import dict.spimi.SPIMIDictionary
+import dict.spimi.SPIMIMapper
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonConfiguration
 import parser.*
@@ -104,7 +104,7 @@ fun main(args: Array<String>) {
         // TODO: stat
         // TODO: save
 
-        val dict = SPIMIDictionary()
+        val dict = SPIMIMapper()
         val documents = DocumentRegistry()
 
         for (file in files) {
