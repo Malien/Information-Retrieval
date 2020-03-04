@@ -16,19 +16,21 @@ class SPIMIReducer(private val files: Array<SPIMIFile>) {
 
     var externalStrings: String? = null
         set(value) {
-            flags.es = value == null
+            flags.es = value != null
             field = value
         }
 
-    var externalDocuments: File? = null
+    var externalDocuments: String? = null
         set(value) {
-            flags.ed = value == null
+            flags.ed = value != null
             field = value
         }
 
     init {
         flags.db = true
-        if (files.any { !it.flags.db }) throw UnsupportedOperationException("Cannot reduce entries on unsorted files")
+        flags.ss = true
+        flags.ud = true
+        if (files.any { !it.flags.ss }) throw UnsupportedOperationException("Cannot reduce entries on unsorted files")
 
         flags.slc = files.all { it.flags.slc }
         flags.sluc = files.all { it.flags.sluc }
@@ -37,17 +39,29 @@ class SPIMIReducer(private val files: Array<SPIMIFile>) {
         flags.diuc = files.all { it.flags.diuc }
     }
 
-    private var maxDocumentsSize = 0
-
     fun reduce(to: String) = reduce(File(to))
     fun reduce(to: File) {
+        if (!to.exists()) {
+            to.parentFile.mkdirs()
+            to.createNewFile()
+        }
         val out = RandomAccessFile(to, "rw")
         val writeBuffer = WriteBuffer(size = 65536, onWrite = out::write)
+
+        var stringsBlockSize = 0u
+        var documentsBlockSize = 0u
 
         writeBuffer.skip(12)
 
         val stringsWriteBuffer = if (externalStrings != null) {
-            val stringsOut = FileOutputStream(externalStrings!!)
+            val stringsFile = File(externalStrings!!)
+            if (!stringsFile.exists()){
+                stringsFile.parentFile.mkdirs()
+                stringsFile.createNewFile()
+            }
+            val bytestring = externalStrings!!.toUtf8Bytes()
+            stringsBlockSize = bytestring.size.toUInt()
+            val stringsOut = FileOutputStream(stringsFile)
             WriteBuffer(size = 65536, onWrite = stringsOut::write, onClose = stringsOut::close)
         } else writeBuffer
 
@@ -62,11 +76,15 @@ class SPIMIReducer(private val files: Array<SPIMIFile>) {
             val (string) = entry
             entry.setValue(stringsWriteBuffer.bytesWritten.toUInt())
             flags.slcAction(
-                big = { writeBuffer.add(string.length) },
+                   big = { writeBuffer.add(string.length) },
                 medium = { writeBuffer.add(string.length.toShort()) },
-                small = { writeBuffer.add(string.length.toByte()) }
+                 small = { writeBuffer.add(string.length.toByte()) }
             )
             writeBuffer.add(string.toUtf8Bytes())
+        }
+
+        if (stringsWriteBuffer === writeBuffer) {
+            stringsBlockSize = writeBuffer.bytesWritten.toUInt() - HEADER_SIZE
         }
 
         flags.spc = writeBuffer.bytesWritten.toULong() < UShort.MAX_VALUE
@@ -79,7 +97,10 @@ class SPIMIReducer(private val files: Array<SPIMIFile>) {
                 var minEntry: SPIMIEntry? = null
                 var minIdx = -1
                 for ((idx, entry) in entries.withIndex()) {
-                    if (minEntry == null) minEntry = entry
+                    if (minEntry == null) {
+                        minEntry = entry
+                        minIdx = idx
+                    }
                     else if (entry != null && entry < minEntry) {
                         minIdx = idx
                         minEntry = entry
@@ -101,8 +122,9 @@ class SPIMIReducer(private val files: Array<SPIMIFile>) {
                     documents.add(doc)
                 } else {
                     if (term != word) {
-                        yield(SPIMIMultiEntry(word, documents.toTypedArray()))
+                        yield(SPIMIMultiEntry(term, documents.toTypedArray()))
                         documents.clear()
+                        documents.add(doc)
                         term = word
                     } else if (doc != documents.last()) documents.add(doc)
                 }
@@ -111,34 +133,33 @@ class SPIMIReducer(private val files: Array<SPIMIFile>) {
 
         fun writeEntry(strPtr: UInt, docPtr: UInt, to: WriteBuffer) {
             flags.spcAction(
-                big = { to.add(strPtr.toInt()) },
+                   big = { to.add(strPtr.toInt()) },
                 medium = { to.add(strPtr.toShort()) },
-                small = { to.add(strPtr.toByte()) }
+                 small = { to.add(strPtr.toByte()) }
             )
             flags.dpcAction(
-                big = { to.add(docPtr.toInt()) },
+                   big = { to.add(docPtr.toInt()) },
                 medium = { to.add(docPtr.toShort()) },
-                small = { to.add(docPtr.toByte()) }
+                 small = { to.add(docPtr.toByte()) }
             )
 
         }
 
         fun Array<DocumentID>.writeDocumentIDs(to: WriteBuffer) {
             flags.dscAction(
-                big = { to.add(size) },
+                   big = { to.add(size) },
                 medium = { to.add(size.toShort()) },
-                small = { to.add(size.toByte()) }
+                 small = { to.add(size.toByte()) }
             )
             for ((id) in this) {
                 flags.dicAction(
-                    big = { to.add(id) },
+                       big = { to.add(id) },
                     medium = { to.add(id.toShort()) },
-                    small = { to.add(id.toByte()) }
+                     small = { to.add(id.toByte()) }
                 )
             }
         }
 
-        val documents = HashMap<DocumentID, UInt>()
         if (externalDocuments != null) {
             // In this single-pass mode sizes of docID collections cannot be pre-evaluated,
             // so sizes are set to take maximum size.
@@ -147,7 +168,15 @@ class SPIMIReducer(private val files: Array<SPIMIFile>) {
             flags.dsc = false
             flags.dsuc = false
 
-            val documentsOut = FileOutputStream(externalDocuments!!)
+            val documentsFile = File(externalDocuments!!)
+            if (!documentsFile.exists()) {
+                documentsFile.parentFile.mkdirs()
+                documentsFile.createNewFile()
+            }
+            val bytestring = externalDocuments!!.toUtf8Bytes()
+            writeBuffer.add(bytestring)
+            documentsBlockSize = bytestring.size.toUInt()
+            val documentsOut = FileOutputStream(documentsFile)
             val documentsWriteBuffer =
                 WriteBuffer(size = 65536, onWrite = documentsOut::write, onClose = documentsOut::close)
             for ((word, documentIDs) in compressedEntries) {
@@ -171,6 +200,8 @@ class SPIMIReducer(private val files: Array<SPIMIFile>) {
                 documentIDs.writeDocumentIDs(to = writeBuffer)
             }
 
+            documentsBlockSize = writeBuffer.bytesWritten.toUInt() - HEADER_SIZE - stringsBlockSize
+
             flags.dpc = writeBuffer.bytesWritten.toULong() < UShort.MAX_VALUE
             flags.dpuc = writeBuffer.bytesWritten.toULong() < UByte.MAX_VALUE
 
@@ -181,7 +212,11 @@ class SPIMIReducer(private val files: Array<SPIMIFile>) {
 
         stringsWriteBuffer.flush()
         writeBuffer.flush()
-        out.close()
+        out.seek(0)
+        writeBuffer.add(flags.flags.toInt())
+        writeBuffer.add(stringsBlockSize.toInt())
+        writeBuffer.add(documentsBlockSize.toInt())
+        writeBuffer.close()
     }
 }
 

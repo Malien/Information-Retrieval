@@ -9,7 +9,7 @@ class IntArrayList(initialSize: Int = 10, private val growthFactor: Float = 1.5f
         if (arr.size <= size) {
             val newSize = (size * growthFactor).toInt()
             val newArr = IntArray(newSize)
-            System.arraycopy(arr, 0, newArr, 0, size)
+            arr.copyInto(newArr)
             arr = newArr
         }
         arr[size++] = value
@@ -21,10 +21,10 @@ class IntArrayList(initialSize: Int = 10, private val growthFactor: Float = 1.5f
             // TODO: reserve headroom as if it were naturally grown (dunno if needed)
             val newSize = size + transferSize
             val newArr = IntArray(newSize)
-            System.arraycopy(arr, 0, newArr, 0, size)
+            arr.copyInto(newArr)
             arr = newArr
         }
-        System.arraycopy(array, from, arr, size, transferSize)
+        array.copyInto(arr, destinationOffset = size, startIndex = from, endIndex = to)
         size += transferSize
     }
 

@@ -1,7 +1,9 @@
 import dict.Dictionary
 import dict.DocumentRegistry
 import dict.JokerDictType
+import dict.spimi.SPIMIFile
 import dict.spimi.SPIMIMapper
+import dict.spimi.SPIMIReducer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonConfiguration
 import parser.*
@@ -103,28 +105,50 @@ fun main(args: Array<String>) {
         }
         // TODO: stat
         // TODO: save
+        // TODO: Thread affinity
 
-        val dict = SPIMIMapper()
+        val mappers = Array(4) { SPIMIMapper() }
         val documents = DocumentRegistry()
 
-        for (file in files) {
-            val id = documents.register(file.path)
-            if (verbose) println("${id.id} -> $file")
-            val br = BufferedReader(FileReader(file))
-            br.lineSequence()
-                .flatMap { it.split(Regex("\\W+")).asSequence() }
-                .filter { it.isNotBlank() }
-                .map { it.toLowerCase() }
-                .forEach { dict.add(it, id) }
-            br.close()
+        val splits = sequence {
+            val splitSize = files.size.toDouble() / mappers.size
+            for(splitno in mappers.indices) {
+                val start = (splitno * splitSize).toInt()
+                val end = ((splitno + 1) * splitSize).toInt()
+                yield(files.slice(start until end))
+            }
         }
 
-        if (saveLocation != null) {
-            val file = dict.dumpToDir(saveLocation)
-            println(file.preambleSize)
-            println(file.flags)
-            println(file.get(0u))
-        }
+        val spimiFiles = splits.zip(mappers.asSequence()).map { (split, mapper) ->
+            for (file in split) {
+                val id = documents.register(file.path)
+                if (verbose) println("${id.id} -> $file")
+                val br = BufferedReader(FileReader(file))
+                br.lineSequence()
+                    .flatMap { it.split(Regex("\\W+")).asSequence() }
+                    .filter { it.isNotBlank() }
+                    .map { it.toLowerCase() }
+                    .forEach { mapper.add(it, id) }
+                br.close()
+            }
+            mapper.unify()
+            mapper.dumpToDir("./chunks")
+        }.constrainOnce()
+
+        val fileList = spimiFiles.toMutableList().toTypedArray()
+
+        val reducer = SPIMIReducer(fileList)
+        reducer.externalDocuments = "./chunks/reduced/documents"
+        reducer.reduce("./chunks/reduced/dictionary")
+        val registry = json.stringify(DocumentRegistry.serializer(), documents)
+        val out = FileWriter("./chunks/reduced/registry.json")
+        out.write(registry)
+        out.close()
+        for (file in fileList) file.close()
+
+        val reduced = SPIMIFile(File("./chunks/reduced/dictionary"))
+        println(reduced.getMulti(0).second.contentToString())
+        println(reduced)
 
     } else {
         // Legacy dict

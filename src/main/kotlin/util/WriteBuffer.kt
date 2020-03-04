@@ -1,8 +1,5 @@
 package util
 
-import dict.spimi.encodeInt
-import dict.spimi.encodeLong
-import dict.spimi.encodeShort
 import java.io.Closeable
 
 const val WRITE_BLOCK_SIZE = 4096

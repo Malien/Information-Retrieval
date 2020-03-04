@@ -116,6 +116,7 @@ data class SPIMIFlags(var flags: UInt = 0u) {
             if (ud) yield("UD")
             if (db) yield("DB")
             if (es) yield("ES")
+            if (ed) yield("ED")
         }.joinToString(separator = ", "))
         append(')')
     }

@@ -7,6 +7,7 @@ package util
  * Set of SORTED keys from SORTED iterator
  */
 data class KeySet<T : Comparable<T>> (val iterator: Iterator<T>, val negated: Boolean = false): Iterable<T> {
+    constructor(array: Array<T>): this(array.iterator())
     override fun iterator() = iterator
 }
 
@@ -112,8 +113,8 @@ fun <T : Comparable<T>> cross(lhs: KeySet<T>, rhs: KeySet<T>) = when {
 
 fun <T : Comparable<T>> negate(set: KeySet<T>) = KeySet(set.iterator, !set.negated)
 
+// TODO: define same operations for pure iterators
 operator fun <T:Comparable<T>> KeySet<T>.not() = negate(this)
-// not sure about those ones
 infix fun <T:Comparable<T>> KeySet<T>.and(other: KeySet<T>) = cross(this, other)
 infix fun <T:Comparable<T>> KeySet<T>.or (other: KeySet<T>) = unite(this, other)
 
@@ -127,53 +128,28 @@ fun main() {
     val b = arrayOf(1,3)
     val all = arrayOf(1,2,3,4)
     val none = emptyArray<Int>()
-    val neg = !a.iterator().keySet
 
     println("--- A or B ---")
-    test(unite(
-        KeySet(a.iterator()),
-        KeySet(b.iterator())
-    ))
+    test(KeySet(a) or KeySet(b))
 
     println("--- All or None ---")
-    test(unite(
-        KeySet(all.iterator()),
-        KeySet(none.iterator())
-    ))
+    test(KeySet(all) or KeySet(none))
 
     println("--- A and B ---")
-    test(cross(
-        KeySet(a.iterator()),
-        KeySet(b.iterator())
-    ))
+    test(KeySet(a) and KeySet(b))
 
     println("--- All and None ---")
-    test(cross(
-        KeySet(all.iterator()),
-        KeySet(none.iterator())
-    ))
+    test(KeySet(all) and KeySet(none))
 
     println("--- not(not A and not B) ---")
-    test(cross(
-        KeySet(a.iterator(), true),
-        KeySet(b.iterator(), true)
-    ))
+    test(!KeySet(a) and !KeySet(b))
 
     println("--- not(not A or not B) ---")
-    test(unite(
-        KeySet(a.iterator(), true),
-        KeySet(b.iterator(), true)
-    ))
+    test(!KeySet(a) or !KeySet(b))
 
     println("--- A and not B ---")
-    test(cross(
-        KeySet(a.iterator()),
-        KeySet(b.iterator(), true)
-    ))
+    test(KeySet(a) and !KeySet(b))
 
     println("--- not A or B ---")
-    test(unite(
-        KeySet(a.iterator(), true),
-        KeySet(b.iterator())
-    ))
+    test( !KeySet(a) or KeySet(b))
 }

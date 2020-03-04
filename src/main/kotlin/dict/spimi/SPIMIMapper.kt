@@ -3,6 +3,7 @@ package dict.spimi
 import dict.DocumentID
 import kotlinx.serialization.toUtf8Bytes
 import util.WriteBuffer
+import util.unboxed.toULongList
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.RandomAccessFile
@@ -39,6 +40,7 @@ class SPIMIMapper {
     }
 
     // TODO: Dude, this should be sorted in place with some sweet inline comparators
+    // TODO: Use the right comparator. Just like in the unify()
     fun sort() {
         entries
             .sortedBy { strings[WordLong(it).wordID.toInt()] }
@@ -61,13 +63,11 @@ class SPIMIMapper {
                     yield(sorted)
                 }
             }
-        }.toMutableList()
+        }.toULongList()
         sorted = true
         unified = true
         size = res.size
-        for ((idx, entry) in res.withIndex()) {
-            entries[idx] = entry
-        }
+        res.arr.copyInto(entries)
     }
 
     fun dumpToDir(path: String) = dumpToDir(File(path))
@@ -93,6 +93,7 @@ class SPIMIMapper {
         flags.dic = maxDocID < UShort.MAX_VALUE
         flags.diuc = maxDocID < UByte.MAX_VALUE
         flags.ss = sorted
+        flags.ud = unified
 
         writeBuffer.skip(12)
         val mapping = HashMap<UInt, UInt>()

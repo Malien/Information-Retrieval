@@ -1,6 +1,8 @@
 package dict.spimi
 
 import dict.DocumentID
+import util.decodeInt
+import util.decodeShort
 import java.io.Closeable
 import java.io.File
 import java.io.RandomAccessFile
@@ -53,10 +55,10 @@ class SPIMIFile(private val file: File) : Closeable, Iterable<SPIMIEntry>, Rando
             val length =
                 flags.slcAction(
                        big = { stream.readInt() },
-                    medium = { stream.readShort().toInt() },
-                     small = { stream.readByte().toInt() })
+                    medium = { stream.readUnsignedShort() },
+                     small = { stream.readUnsignedByte() })
             val bytestring = ByteArray(length)
-            fileStream.read(bytestring)
+            stream.read(bytestring)
             String(bytestring)
         }
 
@@ -66,11 +68,11 @@ class SPIMIFile(private val file: File) : Closeable, Iterable<SPIMIEntry>, Rando
             stream.seek(pos.toLong())
             val length =
                 flags.dscAction(
-                       big = { stream.readInt().toUInt() },
-                    medium = { stream.readShort().toUInt() },
-                     small = { stream.readByte().toUInt() })
+                       big = { stream.readInt() },
+                    medium = { stream.readUnsignedShort() },
+                     small = { stream.readUnsignedByte() }).toUInt()
             val bytedocs = ByteArray((length * flags.documentIDSize).toInt())
-            fileStream.read(bytedocs)
+            stream.read(bytedocs)
             val docIdSize = flags.documentIDSize.toInt()
             Array(length.toInt()) {
                 val idx = it * docIdSize
@@ -95,13 +97,13 @@ class SPIMIFile(private val file: File) : Closeable, Iterable<SPIMIEntry>, Rando
         )
         fileStream.seek((preambleSize + idx * flags.entrySize).toLong())
         val doc = flags.dicAction(
-            big = { fileStream.readInt().toUInt() },
-            medium = { fileStream.readShort().toUInt() },
-            small = { fileStream.readByte().toUInt() })
+               big = { fileStream.readInt() },
+            medium = { fileStream.readUnsignedShort() },
+             small = { fileStream.readUnsignedByte() }).toUInt()
         val strPtr = flags.spcAction(
-               big = { fileStream.readInt().toUInt() },
-            medium = { fileStream.readShort().toUInt() },
-             small = { fileStream.readByte().toUInt() })
+               big = { fileStream.readInt() },
+            medium = { fileStream.readUnsignedShort() },
+             small = { fileStream.readUnsignedByte() }).toUInt()
         return SPIMIEntry(getString(strPtr), DocumentID(doc.toInt()))
     }
     /**
@@ -115,14 +117,14 @@ class SPIMIFile(private val file: File) : Closeable, Iterable<SPIMIEntry>, Rando
             "Cannot retrieve multi-entry from file without DB flag set on. Use get(idx: UInt) instead"
         )
         fileStream.seek((preambleSize + idx * flags.entrySize).toLong())
-        val doc = flags.dpcAction(
-            big = { fileStream.readInt().toUInt() },
-            medium = { fileStream.readShort().toUInt() },
-            small = { fileStream.readByte().toUInt() })
         val strPtr = flags.spcAction(
-               big = { fileStream.readInt().toUInt() },
-            medium = { fileStream.readShort().toUInt() },
-             small = { fileStream.readByte().toUInt() })
+               big = { fileStream.readInt() },
+            medium = { fileStream.readUnsignedShort() },
+             small = { fileStream.readUnsignedByte() }).toUInt()
+        val doc = flags.dpcAction(
+               big = { fileStream.readInt() },
+            medium = { fileStream.readUnsignedShort() },
+             small = { fileStream.readUnsignedByte() }).toUInt()
         return SPIMIMultiEntry(getString(strPtr), getDocuments(doc))
     }
 
@@ -148,13 +150,13 @@ class SPIMIFile(private val file: File) : Closeable, Iterable<SPIMIEntry>, Rando
             stream.seek(pos.toLong())
             val length = flags.slcAction(
                    big = { stream.readInt() },
-                medium = { stream.readShort().toInt() },
-                 small = { stream.readByte().toInt() }
-            )
-            val bytestring = ByteArray(length)
+                medium = { stream.readUnsignedShort() },
+                 small = { stream.readUnsignedByte() }
+            ).toUInt()
+            val bytestring = ByteArray(length.toInt())
             stream.read(bytestring)
             pos += flags.stringLengthSize
-            pos += length.toUInt()
+            pos += length
             yield(String(bytestring))
         }
     }

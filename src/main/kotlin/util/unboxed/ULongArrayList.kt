@@ -1,27 +1,28 @@
 package util.unboxed
 
 @ExperimentalUnsignedTypes
-class UIntArrayList(initialSize: Int = 10, private val growthFactor: Float = 1.5f) : Iterable<UInt>, RandomAccess {
-    var arr = UIntArray(initialSize)
+class ULongArrayList(initialSize: Int = 10, private val growthFactor: Float = 1.5f) : Iterable<ULong>, RandomAccess {
+    var arr = ULongArray(initialSize)
+        private set
     var size = 0
         private set
 
-    fun add(value: UInt) {
+    fun add(value: ULong) {
         if (arr.size <= size) {
             val newSize = (size * growthFactor).toInt()
-            val newArr = UIntArray(newSize)
+            val newArr = ULongArray(newSize)
             arr.copyInto(newArr)
             arr = newArr
         }
         arr[size++] = value
     }
 
-    fun addAll(array: UIntArray, from: Int = 0, to: Int = array.size) {
+    fun addAll(array: ULongArray, from: Int = 0, to: Int = array.size) {
         val transferSize = to - from
         if (size + transferSize > arr.size) {
             // TODO: reserve headroom as if it were naturally grown (dunno if needed)
             val newSize = size + transferSize
-            val newArr = UIntArray(newSize)
+            val newArr = ULongArray(newSize)
             arr.copyInto(newArr)
             arr = newArr
         }
@@ -29,13 +30,13 @@ class UIntArrayList(initialSize: Int = 10, private val growthFactor: Float = 1.5
         size += transferSize
     }
 
-    fun addAll(arrayList: UIntArrayList, from: Int = 0, to: Int = arrayList.size) =
+    fun addAll(arrayList: ULongArrayList, from: Int = 0, to: Int = arrayList.size) =
         addAll(arrayList.arr, from, to)
 
     operator fun get(idx: Int) =
         if (idx in 0 until size) arr[idx] else throw IndexOutOfBoundsException("Index: $idx, Size: $size")
 
-    operator fun set(idx: Int, value: UInt) =
+    operator fun set(idx: Int, value: ULong) =
         if (idx in 0 until size) arr[idx] = value else throw  IndexOutOfBoundsException("Index: $idx, Size: $size")
 
     override fun iterator() = iterator {
@@ -46,7 +47,7 @@ class UIntArrayList(initialSize: Int = 10, private val growthFactor: Float = 1.5
         if (this === other) return true
         if (javaClass != other?.javaClass) return false
 
-        other as UIntArrayList
+        other as ULongArrayList
 
         if (size != other.size) return false
         if (!arr.contentEquals(other.arr)) return false
@@ -61,9 +62,16 @@ class UIntArrayList(initialSize: Int = 10, private val growthFactor: Float = 1.5
     }
 
     override fun toString() =
-        iterator().asSequence().joinToString(separator = ", ", prefix = "IntArrayList([", postfix = "])")
+        iterator().asSequence().joinToString(separator = ", ", prefix = "ULongArrayList([", postfix = "])")
 
 }
 
 @ExperimentalUnsignedTypes
-fun uintArrayListOf(vararg values: UInt) = UIntArrayList(values.size).also { it.addAll(values) }
+fun ulongArrayListOf(vararg values: ULong) = ULongArrayList(values.size).apply { addAll(values) }
+
+@ExperimentalUnsignedTypes
+fun Sequence<ULong>.toULongList(): ULongArrayList {
+    val list = ULongArrayList()
+    for (item in this) list.add(item)
+    return list
+}
