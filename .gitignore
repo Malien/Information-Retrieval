@@ -37,6 +37,7 @@ out
 input
 out.json
 chunks
+chunks.sppkg
 
 # OS files
 .DS_Store

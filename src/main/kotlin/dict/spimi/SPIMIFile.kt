@@ -1,14 +1,18 @@
 package dict.spimi
 
 import dict.DocumentID
+import dict.Documents
+import dict.emptyDocuments
 import util.decodeInt
-import util.decodeShort
+import util.decodeUShort
 import java.io.Closeable
 import java.io.File
 import java.io.RandomAccessFile
 
 @ExperimentalUnsignedTypes
 class SPIMIFile(private val file: File) : Closeable, Iterable<SPIMIEntry>, RandomAccess {
+    constructor(path: String): this(File(path))
+
     private val fileStream = RandomAccessFile(file, "r")
     private val stringsCache by lazy {
         HashMap<UInt, String>()
@@ -16,6 +20,8 @@ class SPIMIFile(private val file: File) : Closeable, Iterable<SPIMIEntry>, Rando
     private val documentsCache by lazy {
         HashMap<UInt, Array<DocumentID>>()
     }
+
+    val filename get() = file.name
 
     private var stringsStream: RandomAccessFile? = null
     private var documentsStream: RandomAccessFile? = null
@@ -48,10 +54,10 @@ class SPIMIFile(private val file: File) : Closeable, Iterable<SPIMIEntry>, Rando
         }
     }
 
-    fun getString(pos: UInt) =
-        stringsCache.getOrPut(pos) {
+    fun dereferenceString(pointer: UInt) =
+        stringsCache.getOrPut(pointer) {
             val stream = stringsStream ?: fileStream
-            stream.seek(pos.toLong())
+            stream.seek(pointer.toLong())
             val length =
                 flags.slcAction(
                        big = { stream.readInt() },
@@ -62,10 +68,10 @@ class SPIMIFile(private val file: File) : Closeable, Iterable<SPIMIEntry>, Rando
             String(bytestring)
         }
 
-    fun getDocuments(pos: UInt) =
-        documentsCache.getOrPut(pos) {
+    fun dereferenceDocuments(pointer: UInt) =
+        documentsCache.getOrPut(pointer) {
             val stream = documentsStream ?: fileStream
-            stream.seek(pos.toLong())
+            stream.seek(pointer.toLong())
             val length =
                 flags.dscAction(
                        big = { stream.readInt() },
@@ -79,8 +85,8 @@ class SPIMIFile(private val file: File) : Closeable, Iterable<SPIMIEntry>, Rando
                 DocumentID(
                     flags.dicAction(
                            big = { bytedocs.decodeInt(idx) },
-                        medium = { bytedocs.decodeShort(idx).toInt() },
-                         small = { bytedocs[idx].toInt() })
+                        medium = { bytedocs.decodeUShort(idx).toInt() },
+                         small = { bytedocs[idx].toUByte().toInt() })
                 )
             }
         }
@@ -104,8 +110,9 @@ class SPIMIFile(private val file: File) : Closeable, Iterable<SPIMIEntry>, Rando
                big = { fileStream.readInt() },
             medium = { fileStream.readUnsignedShort() },
              small = { fileStream.readUnsignedByte() }).toUInt()
-        return SPIMIEntry(getString(strPtr), DocumentID(doc.toInt()))
+        return SPIMIEntry(dereferenceString(strPtr), DocumentID(doc.toInt()))
     }
+
     /**
      * Get string, array of document ids pair at index
      * @param idx: index at which entry should be located
@@ -125,42 +132,89 @@ class SPIMIFile(private val file: File) : Closeable, Iterable<SPIMIEntry>, Rando
                big = { fileStream.readInt() },
             medium = { fileStream.readUnsignedShort() },
              small = { fileStream.readUnsignedByte() }).toUInt()
-        return SPIMIMultiEntry(getString(strPtr), getDocuments(doc))
+        return SPIMIMultiEntry(dereferenceString(strPtr), dereferenceDocuments(doc))
     }
 
     fun getMulti(idx: Int) = getMulti(idx.toUInt())
 
+    fun getString(idx: UInt): String {
+        fileStream.seek((preambleSize + idx * flags.entrySize).toLong())
+        val stringPointer = flags.spcAction(
+               big = { fileStream.readInt() },
+            medium = { fileStream.readUnsignedShort() },
+             small = { fileStream.readUnsignedByte() }).toUInt()
+        return dereferenceString(stringPointer)
+    }
+
     operator fun get(idx: Int) = get(idx.toUInt())
 
+    fun delete() {
+        close()
+        file.delete()
+    }
+
+    fun deleteOnExit() {
+        close()
+        file.deleteOnExit()
+    }
+
     override fun close() {
+        stringsStream?.close()
+        documentsStream?.close()
         fileStream.close()
     }
 
     override fun iterator(): Iterator<SPIMIEntry> = iterator {
-        // TODO: Read blocks of entries instead of one at the time
+//     TODO: Read blocks of entries instead of one at the time
         for (i in 0u until entries) {
             yield(get(i))
         }
     }
 
-    val strings get() = iterator {
-        var pos = if (stringsStream != null) 0u else HEADER_SIZE
-        val stream = stringsStream ?: fileStream
-        while (pos < HEADER_SIZE + stringsBlockSize) {
-            stream.seek(pos.toLong())
-            val length = flags.slcAction(
-                   big = { stream.readInt() },
-                medium = { stream.readUnsignedShort() },
-                 small = { stream.readUnsignedByte() }
-            ).toUInt()
-            val bytestring = ByteArray(length.toInt())
-            stream.read(bytestring)
-            pos += flags.stringLengthSize
-            pos += length
-            yield(String(bytestring))
+    val strings
+        get() = iterator {
+            var pos = if (stringsStream != null) 0u else HEADER_SIZE
+            val stream = stringsStream ?: fileStream
+            while (pos < HEADER_SIZE + stringsBlockSize) {
+                stream.seek(pos.toLong())
+                val length = flags.slcAction(
+                       big = { stream.readInt() },
+                    medium = { stream.readUnsignedShort() },
+                     small = { stream.readUnsignedByte() }
+                ).toUInt()
+                val bytestring = ByteArray(length.toInt())
+                stream.read(bytestring)
+                pos += flags.stringLengthSize
+                pos += length
+                yield(String(bytestring))
+            }
         }
-    }
 
     override fun toString() = "SPIMIFile(${file.toRelativeString(File("."))})"
+
+    fun binarySearch(word: String, fromIndex: UInt = 0u, toIndex: UInt = entries): Int {
+        if (!flags.ss && !flags.db && !flags.ud)
+            throw UnsupportedOperationException("Binary search is only possible on sorted unified multi-entry files")
+        var lo = fromIndex
+        var hi = toIndex
+        while (lo <= hi) {
+            val mid = (lo + hi) / 2u
+            val currentWord = getString(mid)
+//            val (currentWord) = getMulti(mid)
+            val cmp = currentWord.compareTo(word)
+            when {
+                cmp > 0 -> { hi = mid - 1u }
+                cmp < 0 -> { lo = mid + 1u }
+                else -> return mid.toInt()
+            }
+        }
+        return -(lo.toInt()) - 1
+    }
+
+    fun find(word: String): Documents = binarySearch(word).let { idx ->
+        if (idx < 0) emptyDocuments() else Documents(getMulti(idx).second)
+    }
+
+    operator fun get(word: String) = find(word)
 
 }

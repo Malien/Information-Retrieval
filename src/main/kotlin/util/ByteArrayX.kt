@@ -1,13 +1,25 @@
 package util
 
+@ExperimentalUnsignedTypes
 fun ByteArray.decodeLong(at: Int) =
     (decodeInt(at).toLong() shl 32) + decodeInt(at+4)
 
-fun ByteArray.decodeInt(at: Int) =
-    (this[at].toInt() shl 24) + (this[at + 1].toInt() shl 16) + (this[at + 2].toInt() shl 8) + this[at + 3]
+@ExperimentalUnsignedTypes
+fun ByteArray.decodeUInt(at: Int) =
+    (this[at].toUInt() shl 24) + (this[at + 1].toUInt() shl 16) + (this[at + 2].toUInt() shl 8) + this[at + 3].toUByte()
 
-fun ByteArray.decodeShort(at: Int) =
-    ((this[at].toInt() shl 8) + this[at + 1]).toShort()
+@ExperimentalUnsignedTypes
+fun ByteArray.decodeUShort(at: Int) =
+    (this[at].toUInt() shl 8) + this[at + 1].toUByte()
+
+@ExperimentalUnsignedTypes
+fun ByteArray.decodeShort(at: Int) = decodeUShort(at).toShort()
+
+@ExperimentalUnsignedTypes
+fun ByteArray.decodeInt(at: Int) = decodeUInt(at).toInt()
+
+@ExperimentalUnsignedTypes
+fun ByteArray.decodeULong(at: Int) = decodeLong(at).toULong()
 
 fun ByteArray.encodeLong(at: Int, value: Long) {
     encodeInt(at, (value shr 32).toInt())

@@ -1,9 +1,7 @@
-import dict.Dictionary
-import dict.DocumentRegistry
-import dict.JokerDictType
+import dict.*
 import dict.spimi.SPIMIFile
 import dict.spimi.SPIMIMapper
-import dict.spimi.SPIMIReducer
+import dict.spimi.reduce
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonConfiguration
 import parser.*
@@ -30,6 +28,14 @@ fun getFiles(path: String, extension: String? = null): List<File> {
     return files.map { File(directory, it) }
 }
 
+val runtime: Runtime = Runtime.getRuntime()
+
+inline fun <R> measureReturnTimeMillis(block: () -> R): Pair<R, Long> {
+    val start = System.currentTimeMillis()
+    val value = block()
+    return value to System.currentTimeMillis() - start
+}
+
 //TODO: add parallel vs sequential indexing
 //TODO: add execute param
 //TODO: add find param
@@ -47,10 +53,47 @@ val boolArguments = hashSetOf(
     "disable-position",
     "map-reduce"
 )
+val numberArguments: HashMap<String, Double?> = hashMapOf(
+    "p" to runtime.availableProcessors().toDouble()
+)
 val stringArguments =
     hashMapOf<String, String?>("execute" to null, "find" to null, "o" to null, "from" to null, "joker" to null)
 
 val json = Json(JsonConfiguration.Stable)
+
+fun startReplSession(context: EvalContext<Documents>, documents: DocumentRegistry, shouldNegate: Boolean = false) {
+    println("Started interactive REPL session.")
+    print(">>> ")
+    var query = readLine()
+    while (query != null && query != ".q") {
+        try {
+            val tokens = tokenize(query)
+            val tree = parse(tokens)
+            val res = context.eval(tree)
+            if (res.negated) {
+                if (shouldNegate) {
+                    cross(documents.keySet, res)
+                        .forEach { println(documents.path(it)) }
+                } else {
+                    println(
+                        "Warning. Got negated result. Evaluation of such can take a lot of resources." +
+                                "If you want to enable negation evaluation launch program with '-n' argument"
+                    )
+                }
+            } else {
+                res.forEach { println(documents.path(it)) }
+            }
+        } catch (e: InterpretationError) {
+            println("Interpretation Error: ${e.message}")
+        } catch (e: SyntaxError) {
+            println("Syntax Error: ${e.message}")
+        } catch (e: UnsupportedOperationException) {
+            println("Unsupported operation: ${e.message}")
+        }
+        print(">>> ")
+        query = readLine()
+    }
+}
 
 @ExperimentalUnsignedTypes
 fun main(args: Array<String>) {
@@ -58,6 +101,7 @@ fun main(args: Array<String>) {
     val parsed = parseArgs(
         DefaultArguments(
             booleans = boolArguments,
+            numbers = numberArguments,
             strings = stringArguments
         ), args
     )
@@ -69,9 +113,12 @@ fun main(args: Array<String>) {
     val jokerType = parsed.strings["joker"]?.let { JokerDictType.fromArgument(it) }
     val mapReduce = "map-reduce" in parsed.booleans
     val interactive = "i" in parsed.booleans || "interactive" in parsed.booleans
+    val sequential = "sequential" in parsed.booleans || "s" in parsed.booleans
     val stat = "stat" in parsed.booleans
     val from = parsed.strings["from"]
     val saveLocation = parsed.strings["o"]
+    val loadLocation = parsed.strings["from"]
+    val processingThreads = if (sequential) 1 else parsed.numbers["p"]!!.toInt()
 
     // List of files to index
     val files = (
@@ -98,7 +145,7 @@ fun main(args: Array<String>) {
         // Map-reduce version of dict.
         if (verbose) {
             if (doubleWord) println("Double-word dict is disabled to support map-reduce indexing")
-            if (positioned) println("Double-word dict is disabled to support map-reduce indexing") // TODO
+            if (positioned) println("Positioned dict is disabled to support map-reduce indexing") // TODO
             if (jokerType != null) println("Joker is disabled to support map-reduce indexing")
             if (from != null) println("Cannot load dict when map-reduce is enables") // TODO
             if (interactive) println("Interactive sessions are not supported in map-reduce mode") //TODO
@@ -107,48 +154,113 @@ fun main(args: Array<String>) {
         // TODO: save
         // TODO: Thread affinity
 
-        val mappers = Array(4) { SPIMIMapper() }
-        val documents = DocumentRegistry()
+        data class IndexingResult(val file: SPIMIFile, val documents: DocumentRegistry, val timeTook: Long = 0)
 
-        val splits = sequence {
-            val splitSize = files.size.toDouble() / mappers.size
-            for(splitno in mappers.indices) {
-                val start = (splitno * splitSize).toInt()
-                val end = ((splitno + 1) * splitSize).toInt()
-                yield(files.slice(start until end))
+        val (dict, documents, timeTook) = if (loadLocation != null) {
+            if (files.isNotEmpty() && verbose) println("Specified dict load location. Indexing won't be done")
+            val readBuffer = CharArray(4096)
+            val registryReader = FileReader("$loadLocation/registry.json")
+            val serializedRegistry = buildString {
+                while (true) {
+                    val charsRead = registryReader.read(readBuffer)
+                    if (charsRead == -1) break
+                    append(readBuffer, 0, charsRead)
+                }
             }
+            val documents = json.parse(DocumentRegistry.serializer(), serializedRegistry)
+            IndexingResult(SPIMIFile("$loadLocation/dictionary.spimi"), documents)
+        } else {
+            val dictPath = saveLocation ?: "./chunks.sppkg"
+            val dictDirFile = File(dictPath)
+            if (!dictDirFile.exists()) dictDirFile.mkdirs()
+
+            val mappers = Array(processingThreads) { SPIMIMapper() }
+            val documents = DocumentRegistry()
+
+            val splits = sequence {
+                val splitSize = files.size.toDouble() / mappers.size
+                for (splitno in mappers.indices) {
+                    val start = (splitno * splitSize).toInt()
+                    val end = ((splitno + 1) * splitSize).toInt()
+                    yield(files.slice(start until end))
+                }
+            }
+
+            val spimiFiles = splits.zip(mappers.asSequence()).mapIndexed { idx, (split, mapper) ->
+                async {
+                    for (file in split) {
+                        val id: DocumentID
+                        synchronized(documents) {
+                            id = documents.register(file.path)
+                        }
+//                    if (verbose) println("${id.id} -> $file")
+                        val br = BufferedReader(FileReader(file))
+                        br.lineSequence()
+                            .flatMap { it.split(Regex("\\W+")).asSequence() }
+                            .filter { it.isNotBlank() }
+                            .map { it.toLowerCase() }
+                            .forEach { mapper.add(it, id) }
+                        br.close()
+                    }
+                    if (verbose) println("Mapper #$idx: mapping done")
+                    mapper.unify()
+                    if (verbose) println("Mapper #$idx: unification done")
+                    val file = mapper.dumpToDir(dictPath)
+                    if (verbose) println("Mapper #$idx: dumped final chunk ${file.filename}")
+                    file
+                }
+            }.constrainOnce()
+
+            val (fileList, mapTime) = measureReturnTimeMillis {
+                spimiFiles.toMutableList().toTypedArray().mapArray { it.get() }
+            }
+            if (verbose) println("Mapping done in $mapTime ms")
+
+            val (reduced, reduceTime) = measureReturnTimeMillis {
+                reduce(
+                    fileList,
+                    to = "$dictPath/dictionary.spimi",
+                    externalDocuments = "$dictPath/documents.sstr"
+                )
+            }
+            if (verbose) println("Reduction done in $reduceTime ms")
+
+            for (file in fileList) file.delete()
+            IndexingResult(reduced, documents, mapTime + reduceTime)
         }
 
-        val spimiFiles = splits.zip(mappers.asSequence()).map { (split, mapper) ->
-            for (file in split) {
-                val id = documents.register(file.path)
-                if (verbose) println("${id.id} -> $file")
-                val br = BufferedReader(FileReader(file))
-                br.lineSequence()
-                    .flatMap { it.split(Regex("\\W+")).asSequence() }
-                    .filter { it.isNotBlank() }
-                    .map { it.toLowerCase() }
-                    .forEach { mapper.add(it, id) }
-                br.close()
-            }
-            mapper.unify()
-            mapper.dumpToDir("./chunks")
-        }.constrainOnce()
+        if (saveLocation != null) {
+            val registry = json.stringify(DocumentRegistry.serializer(), documents)
+            val out = FileWriter("$saveLocation/registry.json")
+            out.write(registry)
+            out.close()
+        }
 
-        val fileList = spimiFiles.toMutableList().toTypedArray()
+        if (stat) {
+            val memoryUsage = (runtime.totalMemory() - runtime.freeMemory()).megabytes
+            val unique = dict.entries
+            val count = files.count()
+            val mbs = size.megabytes
+            println(
+                "Indexed $count files ($mbs MB total). " +
+                        "Took $timeTook ms to index. " +
+                        "Unique words: $unique. " +
+                        "Memory usage: $memoryUsage MB."
+            )
+        }
 
-        val reducer = SPIMIReducer(fileList)
-        reducer.externalDocuments = "./chunks/reduced/documents"
-        reducer.reduce("./chunks/reduced/dictionary")
-        val registry = json.stringify(DocumentRegistry.serializer(), documents)
-        val out = FileWriter("./chunks/reduced/registry.json")
-        out.write(registry)
-        out.close()
-        for (file in fileList) file.close()
+        if (interactive) {
+            val context = EvalContext(
+                fromID = dict::find,
+                unite = ::unite,
+                cross = ::cross,
+                negate = ::negate
+            )
+            startReplSession(context, documents, shouldNegate = shouldNegate)
+        }
 
-        val reduced = SPIMIFile(File("./chunks/reduced/dictionary"))
-        println(reduced.getMulti(0).second.contentToString())
-        println(reduced)
+        dict.close()
+        if (saveLocation == null) dict.delete()
 
     } else {
         // Legacy dict
@@ -185,7 +297,7 @@ fun main(args: Array<String>) {
                 if (jokerType != dict.jokerType) {
                     println(
                         """WARNING: Mismatch in read dict and arguments: 
-                      |joker is set to ${jokerType} in args and to ${dict.jokerType} in read dictionary.
+                      |joker is set to $jokerType in args and to ${dict.jokerType} in read dictionary.
                       |Changed option to respect dictionary's settings"""
                     )
                 }
@@ -229,7 +341,6 @@ fun main(args: Array<String>) {
 
         // Stats
         if (stat) {
-            val runtime = Runtime.getRuntime()
             val memoryUsage = (runtime.totalMemory() - runtime.freeMemory()).megabytes
             val total = dict.totalWords
             val unique = dict.uniqueWords
@@ -251,37 +362,7 @@ fun main(args: Array<String>) {
                 cross = ::cross,
                 negate = ::negate
             )
-            println("Started interactive REPL session.")
-            print(">>> ")
-            var query = readLine()
-            while (query != null && query != ".q") {
-                try {
-                    val tokens = tokenize(query)
-                    val tree = parse(tokens)
-                    val res = eval(tree)
-                    if (res.negated) {
-                        if (shouldNegate) {
-                            cross(dict.documents.keySet, res)
-                                .forEach { println(dict.documents.path(it)) }
-                        } else {
-                            println(
-                                "Warning. Got negated result. Evaluation of such can take a lot of resources." +
-                                        "If you want to enable negation evaluation launch program with '-n' argument"
-                            )
-                        }
-                    } else {
-                        res.forEach { println(dict.documents.path(it)) }
-                    }
-                } catch (e: InterpretationError) {
-                    println("Interpretation Error: ${e.message}")
-                } catch (e: SyntaxError) {
-                    println("Syntax Error: ${e.message}")
-                } catch (e: UnsupportedOperationException) {
-                    println("Unsupported operation: ${e.message}")
-                }
-                print(">>> ")
-                query = readLine()
-            }
+            startReplSession(eval, dict.documents, shouldNegate = shouldNegate)
         }
     }
 
