@@ -2,6 +2,7 @@ import dict.*
 import dict.spimi.SPIMIFile
 import dict.spimi.SPIMIMapper
 import dict.spimi.reduce
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonConfiguration
 import parser.*
@@ -28,7 +29,6 @@ fun getFiles(path: String, extension: String? = null): List<File> {
     return files.map { File(directory, it) }
 }
 
-val runtime: Runtime = Runtime.getRuntime()
 
 inline fun <R> measureReturnTimeMillis(block: () -> R): Pair<R, Long> {
     val start = System.currentTimeMillis()
@@ -36,7 +36,21 @@ inline fun <R> measureReturnTimeMillis(block: () -> R): Pair<R, Long> {
     return value to System.currentTimeMillis() - start
 }
 
-//TODO: add parallel vs sequential indexing
+fun <T> fromJSONFile(path: String, serializer: KSerializer<T>): T {
+    val readBuffer = CharArray(4096)
+    val reader = FileReader(path)
+    val serializedObject = buildString {
+        while (true) {
+            val charsRead = reader.read(readBuffer)
+            if (charsRead == -1) break
+            append(readBuffer, 0, charsRead)
+        }
+    }
+    return json.parse(serializer, serializedObject)
+}
+
+val runtime: Runtime = Runtime.getRuntime()
+
 //TODO: add execute param
 //TODO: add find param
 val boolArguments = hashSetOf(
@@ -117,7 +131,6 @@ fun main(args: Array<String>) {
     val stat = "stat" in parsed.booleans
     val from = parsed.strings["from"]
     val saveLocation = parsed.strings["o"]
-    val loadLocation = parsed.strings["from"]
     val processingThreads = if (sequential) 1 else parsed.numbers["p"]!!.toInt()
 
     // List of files to index
@@ -147,28 +160,18 @@ fun main(args: Array<String>) {
             if (doubleWord) println("Double-word dict is disabled to support map-reduce indexing")
             if (positioned) println("Positioned dict is disabled to support map-reduce indexing") // TODO
             if (jokerType != null) println("Joker is disabled to support map-reduce indexing")
-            if (from != null) println("Cannot load dict when map-reduce is enables") // TODO
-            if (interactive) println("Interactive sessions are not supported in map-reduce mode") //TODO
+            if (from != null) println("Cannot load dict when map-reduce is enables")
+            if (interactive) println("Interactive sessions are not supported in map-reduce mode")
         }
-        // TODO: stat
-        // TODO: save
-        // TODO: Thread affinity
 
         data class IndexingResult(val file: SPIMIFile, val documents: DocumentRegistry, val timeTook: Long = 0)
 
-        val (dict, documents, timeTook) = if (loadLocation != null) {
+        val (dict, documents, timeTook) = if (from != null) {
             if (files.isNotEmpty() && verbose) println("Specified dict load location. Indexing won't be done")
-            val readBuffer = CharArray(4096)
-            val registryReader = FileReader("$loadLocation/registry.json")
-            val serializedRegistry = buildString {
-                while (true) {
-                    val charsRead = registryReader.read(readBuffer)
-                    if (charsRead == -1) break
-                    append(readBuffer, 0, charsRead)
-                }
-            }
-            val documents = json.parse(DocumentRegistry.serializer(), serializedRegistry)
-            IndexingResult(SPIMIFile("$loadLocation/dictionary.spimi"), documents)
+            IndexingResult(
+                SPIMIFile("$from/dictionary.spimi"),
+                fromJSONFile("$from/registry.json", DocumentRegistry.serializer())
+            )
         } else {
             val dictPath = saveLocation ?: "./chunks.sppkg"
             val dictDirFile = File(dictPath)
@@ -193,7 +196,6 @@ fun main(args: Array<String>) {
                         synchronized(documents) {
                             id = documents.register(file.path)
                         }
-//                    if (verbose) println("${id.id} -> $file")
                         val br = BufferedReader(FileReader(file))
                         br.lineSequence()
                             .flatMap { it.split(Regex("\\W+")).asSequence() }
@@ -267,16 +269,7 @@ fun main(args: Array<String>) {
 
         // Load dict
         val dict = if (from != null) {
-            val buffer = CharArray(4096)
-            val input = FileReader(from)
-            val string = buildString {
-                while (true) {
-                    val charsRead = input.read(buffer)
-                    if (charsRead == -1) break
-                    append(buffer, 0, charsRead)
-                }
-            }
-            val dict = json.parse(Dictionary.serializer(), string)
+            val dict = fromJSONFile(from, Dictionary.serializer())
             if (verbose) {
                 if (doubleWord != dict.doubleWord) {
                     println(

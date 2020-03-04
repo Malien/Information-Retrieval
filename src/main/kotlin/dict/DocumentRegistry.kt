@@ -25,4 +25,5 @@ class DocumentRegistry: Iterable<DocumentID> {
     fun path(id: DocumentID) = documents[id]
 
     override fun iterator() = documents.keys.iterator()
+
 }
