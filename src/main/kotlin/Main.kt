@@ -15,6 +15,7 @@ import java.io.FileWriter
 import java.nio.file.Files
 import java.nio.file.Paths
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.streams.asSequence
@@ -199,6 +200,9 @@ fun main(args: Array<String>) {
             }
 
             val filesMapped = AtomicInteger(0)
+            val bytesMapped = AtomicLong(0)
+            val pastBytesMapped = AtomicLong(0)
+            val prevTimeStamp = AtomicLong(System.currentTimeMillis())
 
             val spimiFiles = splits.mapIndexed { idx, split ->
                 async {
@@ -227,10 +231,16 @@ fun main(args: Array<String>) {
                                 }
                             }
                         br.close()
-                        val currentlyMapped = filesMapped.incrementAndGet()
-                        if (verbose && currentlyMapped % 50 == 0) {
-                            val percentage = (currentlyMapped.toDouble() / files.size).round(digits = 2)
-                            console.statusLine = "Mapped $currentlyMapped files out of ${files.size} ($percentage%)"
+                        val currentlyMappedFiles = filesMapped.incrementAndGet()
+                        val currentlyMappedBytes = bytesMapped.addAndGet(file.length())
+                        if (verbose && currentlyMappedFiles % 50 == 0) {
+                            val percentage = ((currentlyMappedFiles.toDouble() / files.size) * 100).round(digits = 2)
+                            val currentTime = System.currentTimeMillis()
+                            val timeDelta = currentTime - prevTimeStamp.getAndSet(currentTime)
+                            val byteDelta = currentlyMappedBytes - pastBytesMapped.getAndSet(currentlyMappedBytes)
+                            val indexingSpeed = (byteDelta.megabytes / (timeDelta * 1_000_000)).round(digits = 2)
+                            console.statusLine = "Mapped $currentlyMappedFiles files out of ${files.size} ($percentage%)." +
+                                    "Indexed ${currentlyMappedBytes.megabytes}Mb ($indexingSpeed Mb/s)"
                         }
                     }
                     if (verbose) console.println("Mapper #$idx: final mapping done")
