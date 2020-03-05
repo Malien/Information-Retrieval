@@ -4,11 +4,19 @@ import java.io.Closeable
 
 const val WRITE_BLOCK_SIZE = 4096
 
-// Might consider doing what java does and just wrap OutputStream instead of using callbacks
-// as it doesn't operate on anything else than streams of files
+/**
+ * Buffer that automatically fetches data from stream and buffers it.
+ * @param size size of a buffer
+ * @param onWrite callback that is fired when buffer needs more data.
+ *                It is made to be compatible in signature with stream::read
+ * @param onClose optional. Callback that is fired when buffer is to be closed.
+ *                Should be used to close underlying streams.
+ * NOTE: Might consider doing what java does and just wrap OutputStream instead of using callbacks
+ * as it doesn't operate on anything else than streams of files. It actually makes more sense
+ */
 class WriteBuffer(
     val size: Int = WRITE_BLOCK_SIZE,
-    val onWrite: (ByteArray, Int, Int) -> Unit,
+    val onWrite: (arr: ByteArray, offset: Int, length: Int) -> Unit,
     val onClose: () -> Unit = {}
 ) : Closeable {
     val buffer = ByteArray(size)

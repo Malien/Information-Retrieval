@@ -3,6 +3,10 @@ package util
 import kotlinx.serialization.toUtf8Bytes
 import java.io.OutputStream
 
+/**
+ * Console that does not retain status line at the bottom at all times, and instead treats it as a normal println
+ * @param outputStream stream that is to be wrapped
+ */
 class PlainConsole(private val outputStream: OutputStream): Console {
     override var statusLine = ""
         set(value) {

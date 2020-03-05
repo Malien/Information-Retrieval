@@ -3,6 +3,10 @@ package util
 import kotlinx.serialization.toUtf8Bytes
 import java.io.OutputStream
 
+/**
+ * Wrapper around output stream, that retains status line on the bottom at all times
+ * @param outputStream stream to be wrapped
+ */
 class FancyConsole(val outputStream: OutputStream) : Console {
     private var statusBytes: ByteArray = ByteArray(0)
     override var statusLine: String
