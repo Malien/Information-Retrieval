@@ -21,10 +21,24 @@ import kotlin.math.roundToInt
 import kotlin.streams.asSequence
 import kotlin.system.measureTimeMillis
 
+/**
+ * Rounds number to the specified decimal place after dot
+ * @param digits digits to be left after dot
+ * @return rounded number
+ */
 fun Double.round(digits: Int = 0) = (10.0.pow(digits) * this).roundToInt() / 10.0.pow(digits)
 
+/**
+ * Converts to a printable-ish representation of value in megabytes (if value specifies size in bytes)
+ */
 val Long.megabytes get() = (this / 1024 / 1024.0).round(2)
 
+/**
+ * Retrieves the sequence of files in the directory with optionally provided extension name
+ * @param path path to a directory
+ * @param extension optional. Extension of files to be included in the sequence
+ * @return sequence of files
+ */
 fun getFiles(path: String, extension: String? = null): Sequence<File> {
     val directory = File(path)
     if (!directory.exists() && !directory.isDirectory) return emptySequence()
@@ -35,15 +49,31 @@ fun getFiles(path: String, extension: String? = null): Sequence<File> {
     return files.asSequence().map { File(directory, it) }
 }
 
+/**
+ * Retrieves the sequence of files from directory tree recursively
+ * @param path path to a directory
+ * @return sequence of files
+ */
 fun getFilesRecursively(path: String): Sequence<File> =
     Files.walk(Paths.get(path)).filter{ Files.isRegularFile(it) }.map { it.toFile() }.asSequence()
 
+/**
+ * Measures time that block execution took, and
+ * returns a pair of return value of the block and time it took in milliseconds
+ * @param block block of code to be measured
+ * @return pair of return value and execution time in milliseconds
+ */
 inline fun <R> measureReturnTimeMillis(block: () -> R): Pair<R, Long> {
     val start = System.currentTimeMillis()
     val value = block()
     return value to System.currentTimeMillis() - start
 }
 
+/**
+ * Deserialize object from a JSON file
+ * @param path path to a JSON file
+ * @param serializer a serializer used to deserialize file
+ */
 fun <T> fromJSONFile(path: String, serializer: KSerializer<T>): T {
     val readBuffer = CharArray(4096)
     val reader = FileReader(path)
@@ -56,6 +86,15 @@ fun <T> fromJSONFile(path: String, serializer: KSerializer<T>): T {
     }
     return json.parse(serializer, serializedObject)
 }
+
+/**
+ * Retrieves and parses tokens from the file. And constructs sequence of tokens
+ * @return Sequence of lexical tokens
+ */
+val BufferedReader.tokenSequence get() = this.lineSequence()
+    .flatMap { it.split(Regex("\\W+")).asSequence() }
+    .filter  { it.isNotBlank() }
+    .map     { it.toLowerCase() }
 
 val runtime: Runtime = Runtime.getRuntime()
 
@@ -84,40 +123,9 @@ val stringArguments =
 
 val json = Json(JsonConfiguration.Stable)
 
-fun startReplSession(context: EvalContext<Documents>, documents: DocumentRegistry, shouldNegate: Boolean = false) {
-    println("Started interactive REPL session.")
-    print(">>> ")
-    var query = readLine()
-    while (query != null && query != ".q") {
-        try {
-            val tokens = tokenize(query)
-            val tree = parse(tokens)
-            val res = context.eval(tree)
-            if (res.negated) {
-                if (shouldNegate) {
-                    cross(documents.keySet, res)
-                        .forEach { println(documents.path(it)) }
-                } else {
-                    println(
-                        "Warning. Got negated result. Evaluation of such can take a lot of resources." +
-                                "If you want to enable negation evaluation launch program with '-n' argument"
-                    )
-                }
-            } else {
-                res.forEach { println(documents.path(it)) }
-            }
-        } catch (e: InterpretationError) {
-            println("Interpretation Error: ${e.message}")
-        } catch (e: SyntaxError) {
-            println("Syntax Error: ${e.message}")
-        } catch (e: UnsupportedOperationException) {
-            println("Unsupported operation: ${e.message}")
-        }
-        print(">>> ")
-        query = readLine()
-    }
-}
-
+/**
+ * Main application entrypoint. Processed commandline arguments, setups dicts, links everything together
+ */
 @ExperimentalUnsignedTypes
 fun main(args: Array<String>) {
     // Parse arguments
@@ -129,6 +137,7 @@ fun main(args: Array<String>) {
         ), args
     )
 
+    // Store argument parsing results in variables for better convenience
     val shouldNegate = "n" in parsed.booleans
     val verbose = "v" in parsed.booleans || "verbose" in parsed.booleans
     val doubleWord = "disable-double-word" !in parsed.booleans
@@ -143,6 +152,51 @@ fun main(args: Array<String>) {
     val processingThreads = if (sequential) 1 else parsed.numbers["p"]!!.toInt()
     val recursive = "r" in parsed.booleans
     val prettyPrint = "pretty-print" in parsed.booleans
+
+    /**
+     * Starts an interactive REPL (Read Eval Print Loop) session to evaluate user specified queries.
+     * Blocks execution until user types ".q" to the prompt
+     * Captures shouldNegate from closure, which specifies whether boolean expression that results in negation
+     * should be evaluated. If set to false, user would get warning, otherwise negation will proceed
+     * @param context an evaluation context which is used to process request instructions.
+     *                Such as retrieving documents from string, unifying, crossing and negating boolean expressions
+     *                with those documents
+     * @param documents a document registry used to correlate document ids
+     *                  to their stats (in this case the stat is the path to a file)
+     */
+    fun startReplSession(context: EvalContext<Documents>, documents: DocumentRegistry) {
+        println("Started interactive REPL session.")
+        print(">>> ")
+        var query = readLine()
+        while (query != null && query != ".q") {
+            try {
+                val tokens = tokenize(query)
+                val tree = parse(tokens)
+                val res = context.eval(tree)
+                if (res.negated) {
+                    if (shouldNegate) {
+                        cross(documents.keySet, res)
+                            .forEach { println(documents.path(it)) }
+                    } else {
+                        println(
+                            "Warning. Got negated result. Evaluation of such can take a lot of resources." +
+                                    "If you want to enable negation evaluation launch program with '-n' argument"
+                        )
+                    }
+                } else {
+                    res.forEach { println(documents.path(it)) }
+                }
+            } catch (e: InterpretationError) {
+                println("Interpretation Error: ${e.message}")
+            } catch (e: SyntaxError) {
+                println("Syntax Error: ${e.message}")
+            } catch (e: UnsupportedOperationException) {
+                println("Unsupported operation: ${e.message}")
+            }
+            print(">>> ")
+            query = readLine()
+        }
+    }
 
     val console = if (prettyPrint) FancyConsole(System.out) else PlainConsole(System.out)
 
@@ -179,17 +233,20 @@ fun main(args: Array<String>) {
         data class IndexingResult(val file: SPIMIFile, val documents: DocumentRegistry, val timeTook: Long = 0)
 
         val (dict, documents, timeTook) = if (from != null) {
+            // Loading dict from disk
             if (files.isNotEmpty() && verbose) println("Specified dict load location. Indexing won't be done")
             IndexingResult(
                 SPIMIFile("$from/dictionary.spimi"),
                 fromJSONFile("$from/registry.json", DocumentRegistry.serializer())
             )
         } else {
+            // Indexing dict to a disk
             val dictPath = saveLocation ?: "./chunks.sppkg"
             val dictDirFile = File(dictPath)
             if (!dictDirFile.exists()) dictDirFile.mkdirs()
             val documents = DocumentRegistry()
 
+            // Splits files between processing threads
             val splits = sequence {
                 val splitSize = files.size.toDouble() / processingThreads
                 for (splitno in 0 until processingThreads) {
@@ -204,32 +261,30 @@ fun main(args: Array<String>) {
             val pastBytesMapped = AtomicLong(0)
             val prevTimeStamp = AtomicLong(System.currentTimeMillis())
 
+            // Mapping
             val spimiFiles = splits.mapIndexed { idx, split ->
-                async {
+                async { // Launches separate thread of execution which returns a value
                     val mapper = SPIMIMapper()
                     val list = ArrayList<SPIMIFile>()
                     for (file in split) {
                         val id: DocumentID
+                        // Register document in centralized dictionary
                         synchronized(documents) {
                             id = documents.register(file.path)
                         }
                         val br = BufferedReader(FileReader(file))
-                        br.lineSequence()
-                            .flatMap { it.split(Regex("\\W+")).asSequence() }
-                            .filter { it.isNotBlank() }
-                            .map { it.toLowerCase() }
-                            .forEach {
-                                val hasMoreSpace = mapper.add(it, id)
-                                if (!hasMoreSpace) {
-                                    if (verbose) console.println("Mapper #$idx: done mapping chunk of $ENTRIES_COUNT elements")
-                                    mapper.unify()
-                                    if (verbose) console.println("Mapper #$idx: unified chunk down to ${mapper.size}")
-                                    val dumpFile = mapper.dumpToDir(dictPath)
-                                    if (verbose) console.println("Mapper #$idx: dumped chunk ${dumpFile.filename}")
-                                    list.add(dumpFile)
-                                    mapper.clear()
-                                }
+                        br.tokenSequence.forEach {
+                            val hasMoreSpace = mapper.add(it, id)
+                            if (!hasMoreSpace) {
+                                if (verbose) console.println("Mapper #$idx: done mapping chunk of $ENTRIES_COUNT elements")
+                                mapper.unify()
+                                if (verbose) console.println("Mapper #$idx: unified chunk down to ${mapper.size}")
+                                val dumpFile = mapper.dumpToDir(dictPath)
+                                if (verbose) console.println("Mapper #$idx: dumped chunk ${dumpFile.filename}")
+                                list.add(dumpFile)
+                                mapper.clear()
                             }
+                        }
                         br.close()
                         val currentlyMappedFiles = filesMapped.incrementAndGet()
                         val currentlyMappedBytes = bytesMapped.addAndGet(file.length())
@@ -253,11 +308,13 @@ fun main(args: Array<String>) {
                 }
             }.constrainOnce()
 
+            // This part actually begins evaluation of mapper sequence
             val (fileList, mapTime) = measureReturnTimeMillis {
                 spimiFiles.toMutableList().flatMap { it.get() }.toTypedArray()
             }
             if (verbose) println("Mapping done in $mapTime ms")
 
+            // Reduce step
             val (reduced, reduceTime) = measureReturnTimeMillis {
                 reduce(
                     fileList,
@@ -267,10 +324,12 @@ fun main(args: Array<String>) {
             }
             if (verbose) println("Reduction done in $reduceTime ms")
 
+            // Remove temporary mapping files
             for (file in fileList) file.delete()
             IndexingResult(reduced, documents, mapTime + reduceTime)
         }
 
+        // Save registry to the disk
         if (saveLocation != null) {
             val registry = json.stringify(DocumentRegistry.serializer(), documents)
             val out = FileWriter("$saveLocation/registry.json")
@@ -278,6 +337,7 @@ fun main(args: Array<String>) {
             out.close()
         }
 
+        // Print stats
         if (stat) {
             val memoryUsage = (runtime.totalMemory() - runtime.freeMemory()).megabytes
             val unique = dict.entries
@@ -291,6 +351,7 @@ fun main(args: Array<String>) {
             )
         }
 
+        // REPL
         if (interactive) {
             val context = EvalContext(
                 fromID = dict::find,
@@ -298,10 +359,11 @@ fun main(args: Array<String>) {
                 cross = ::cross,
                 negate = ::negate
             )
-            startReplSession(context, documents, shouldNegate = shouldNegate)
+            startReplSession(context, documents)
         }
 
         dict.close()
+        // If no save location is specified dict is deleted from the disk
         if (from == null && saveLocation == null) dict.delete()
 
     } else {
@@ -395,7 +457,7 @@ fun main(args: Array<String>) {
                 cross = ::cross,
                 negate = ::negate
             )
-            startReplSession(eval, dict.documents, shouldNegate = shouldNegate)
+            startReplSession(eval, dict.documents)
         }
     }
 

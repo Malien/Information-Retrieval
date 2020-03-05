@@ -8,3 +8,5 @@ TODO: Documentation
 TODO: Parallel reducers
 TODO: Buffered string iterator
 TODO: Dynamic indexing
+TODO: Do not open so many file descriptors!
+TODO: Reduction in batches
