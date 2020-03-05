@@ -8,6 +8,9 @@ import util.unboxed.UIntArrayList
 import java.io.File
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
+import java.util.*
+import kotlin.collections.ArrayList
+import kotlin.collections.HashMap
 
 @ExperimentalUnsignedTypes
 fun reduce(files: Array<SPIMIFile>, to: String, externalStrings: String? = null, externalDocuments: String? = null) =
@@ -86,22 +89,17 @@ fun reduce(
 
     val unifiedEntries = sequence<SPIMIEntry> {
         val iterators = files.mapArray { it.iterator() }
-        val entries = iterators.mapArray { if (it.hasNext()) it.next() else null }
-        while (iterators.any { it.hasNext() }) {
-            var minEntry: SPIMIEntry? = null
-            var minIdx = -1
-            for ((idx, entry) in entries.withIndex()) {
-                if (minEntry == null) {
-                    minEntry = entry
-                    minIdx = idx
-                } else if (entry != null && entry < minEntry) {
-                    minIdx = idx
-                    minEntry = entry
-                }
-            }
-            yield(minEntry!!)
-            val minIterator = iterators[minIdx]
-            entries[minIdx] = if (minIterator.hasNext()) minIterator.next() else null
+        val entries = PriorityQueue(
+            Comparator.comparing<Pair<SPIMIEntry, Int>, SPIMIEntry> { it.first }
+        )
+        for ((idx, iterator) in iterators.withIndex()) {
+            if (iterator.hasNext()) entries.add(iterator.next() to idx)
+        }
+        while (entries.isNotEmpty()) {
+            val (entry, idx) = entries.poll()
+            yield(entry)
+            val iterator = iterators[idx]
+            if (iterator.hasNext()) entries.add(iterator.next() to idx)
         }
     }.constrainOnce()
 

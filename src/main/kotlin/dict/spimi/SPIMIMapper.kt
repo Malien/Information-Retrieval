@@ -39,20 +39,22 @@ class SPIMIMapper {
         return size != ENTRIES_COUNT
     }
 
+    val entriesComparator: Comparator<ULong> = Comparator.comparing<ULong, String> { strings[WordLong(it).wordID.toInt()] }
+        .thenComparingInt { WordLong(it).docID.toInt() }
+
     // TODO: Dude, this should be sorted in place with some sweet inline comparators
     // TODO: Use the right comparator. Just like in the unify()
     fun sort() {
         entries
-            .sortedBy { strings[WordLong(it).wordID.toInt()] }
+            .take(size)
+            .sortedWith(entriesComparator)
             .forEachIndexed { idx, elem -> entries[idx] = elem }
         sorted = true
     }
 
     fun unify() {
-        val seq = if (sorted) entries.asSequence() else {
-            val comparator = kotlin.Comparator.comparing<ULong, String> { strings[WordLong(it).wordID.toInt()] }
-                .thenComparingInt { WordLong(it).docID.toInt() }
-            entries.asSequence().sortedWith(comparator)
+        val seq = if (sorted) entries.asSequence().take(size) else {
+            entries.asSequence().take(size).sortedWith(entriesComparator)
         }
         val res = sequence {
             var prev: ULong? = null
@@ -133,6 +135,17 @@ class SPIMIMapper {
         out.writeInt(flags.flags.toInt())
         out.writeInt(stringsSize.toInt())
         out.close()
+    }
+
+    fun clear() {
+        stringMap.clear()
+        strings.clear()
+        size = 0
+
+        sorted = false
+        unified = false
+        maxWordLength = 0u
+        maxDocID = 0u
     }
 
 }

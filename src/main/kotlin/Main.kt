@@ -1,4 +1,5 @@
 import dict.*
+import dict.spimi.ENTRIES_COUNT
 import dict.spimi.SPIMIFile
 import dict.spimi.SPIMIMapper
 import dict.spimi.reduce
@@ -11,24 +12,29 @@ import java.io.BufferedReader
 import java.io.File
 import java.io.FileReader
 import java.io.FileWriter
+import java.nio.file.Files
+import java.nio.file.Paths
 import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.streams.asSequence
 import kotlin.system.measureTimeMillis
 
 fun Double.round(digits: Int = 0) = (10.0.pow(digits) * this).roundToInt() / 10.0.pow(digits)
 
 val Long.megabytes get() = (this / 1024 / 1024.0).round(2)
 
-fun getFiles(path: String, extension: String? = null): List<File> {
+fun getFiles(path: String, extension: String? = null): Sequence<File> {
     val directory = File(path)
-    if (!directory.exists() && !directory.isDirectory) return emptyList()
+    if (!directory.exists() && !directory.isDirectory) return emptySequence()
     val files = directory.list { dir, name ->
         val file = File(dir, name)
         file.exists() && file.isFile && (extension == null || file.extension == extension)
     } ?: emptyArray()
-    return files.map { File(directory, it) }
+    return files.asSequence().map { File(directory, it) }
 }
 
+fun getFilesRecursively(path: String): Sequence<File> =
+    Files.walk(Paths.get(path)).filter{ Files.isRegularFile(it) }.map { it.toFile() }.asSequence()
 
 inline fun <R> measureReturnTimeMillis(block: () -> R): Pair<R, Long> {
     val start = System.currentTimeMillis()
@@ -58,14 +64,14 @@ val boolArguments = hashSetOf(
     "interactive",
     "s",
     "sequential",
-    "d",
     "stat",
     "n",
     "verbose",
     "v",
     "disable-double-word",
     "disable-position",
-    "map-reduce"
+    "map-reduce",
+    "r"
 )
 val numberArguments: HashMap<String, Double?> = hashMapOf(
     "p" to runtime.availableProcessors().toDouble()
@@ -132,24 +138,24 @@ fun main(args: Array<String>) {
     val from = parsed.strings["from"]
     val saveLocation = parsed.strings["o"]
     val processingThreads = if (sequential) 1 else parsed.numbers["p"]!!.toInt()
+    val recursive = "r" in parsed.booleans
 
     // List of files to index
-    val files = (
-            if ("d" in parsed.booleans) {
-                parsed.unspecified.asSequence()
-                    .flatMap { getFiles(it).asSequence() }
-            } else parsed.unspecified.asSequence().map { File(it) }
-            )
+    val filesSequence = parsed.unspecified.asSequence()
+        .map { File(it) }
         .filter {
             if (!it.exists()) {
                 System.err.println("$it does not exist")
                 false
-            } else if (!it.isFile) {
-                System.err.println("$it is not a file")
-                false
             } else true
         }
-        .toList()
+    val fromDirs = filesSequence
+        .filter { it.isDirectory }
+        .map { it.path }
+        .flatMap { if (recursive) getFilesRecursively(it) else getFiles(it) }
+    val fromFiles = filesSequence.filter { it.isFile }
+    val files = (fromDirs + fromFiles).toList()
+
     val size = files.asSequence()
         .map { it.length() }
         .sum()
@@ -176,21 +182,21 @@ fun main(args: Array<String>) {
             val dictPath = saveLocation ?: "./chunks.sppkg"
             val dictDirFile = File(dictPath)
             if (!dictDirFile.exists()) dictDirFile.mkdirs()
-
-            val mappers = Array(processingThreads) { SPIMIMapper() }
             val documents = DocumentRegistry()
 
             val splits = sequence {
-                val splitSize = files.size.toDouble() / mappers.size
-                for (splitno in mappers.indices) {
+                val splitSize = files.size.toDouble() / processingThreads
+                for (splitno in 0 until processingThreads) {
                     val start = (splitno * splitSize).toInt()
                     val end = ((splitno + 1) * splitSize).toInt()
                     yield(files.slice(start until end))
                 }
             }
 
-            val spimiFiles = splits.zip(mappers.asSequence()).mapIndexed { idx, (split, mapper) ->
+            val spimiFiles = splits.mapIndexed { idx, split ->
                 async {
+                    val mapper = SPIMIMapper()
+                    val list = ArrayList<SPIMIFile>()
                     for (file in split) {
                         val id: DocumentID
                         synchronized(documents) {
@@ -201,20 +207,32 @@ fun main(args: Array<String>) {
                             .flatMap { it.split(Regex("\\W+")).asSequence() }
                             .filter { it.isNotBlank() }
                             .map { it.toLowerCase() }
-                            .forEach { mapper.add(it, id) }
+                            .forEach {
+                                val hasMoreSpace = mapper.add(it, id)
+                                if (!hasMoreSpace) {
+                                    if (verbose) println("Mapper #$idx: done mapping chunk of $ENTRIES_COUNT elements")
+                                    mapper.unify()
+                                    if (verbose) println("Mapper #$idx: unified chunk down to ${mapper.size}")
+                                    val dumpFile = mapper.dumpToDir(dictPath)
+                                    if (verbose) println("Mapper #$idx: dumped chunk ${dumpFile.filename}")
+                                    list.add(dumpFile)
+                                    mapper.clear()
+                                }
+                            }
                         br.close()
                     }
-                    if (verbose) println("Mapper #$idx: mapping done")
+                    if (verbose) println("Mapper #$idx: final mapping done")
                     mapper.unify()
-                    if (verbose) println("Mapper #$idx: unification done")
+                    if (verbose) println("Mapper #$idx: final unification done")
                     val file = mapper.dumpToDir(dictPath)
                     if (verbose) println("Mapper #$idx: dumped final chunk ${file.filename}")
-                    file
+                    list.add(file)
+                    list
                 }
             }.constrainOnce()
 
             val (fileList, mapTime) = measureReturnTimeMillis {
-                spimiFiles.toMutableList().toTypedArray().mapArray { it.get() }
+                spimiFiles.toMutableList().flatMap { it.get() }.toTypedArray()
             }
             if (verbose) println("Mapping done in $mapTime ms")
 
@@ -262,7 +280,7 @@ fun main(args: Array<String>) {
         }
 
         dict.close()
-        if (saveLocation == null) dict.delete()
+        if (from == null && saveLocation == null) dict.delete()
 
     } else {
         // Legacy dict

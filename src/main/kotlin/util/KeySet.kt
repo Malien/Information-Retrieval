@@ -76,6 +76,12 @@ private fun <T : Comparable<T>> crossSame(lhs: Iterator<T>, rhs: Iterator<T>): I
                 }
             }
         }
+        while (lhs.hasNext()) {
+            if (lhs.next() == rightValue) yield(rightValue)
+        }
+        while (rhs.hasNext()) {
+            if (rhs.next() == leftValue) yield(leftValue)
+        }
         if (leftValue == rightValue) yield(leftValue)
     }
 }
