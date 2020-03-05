@@ -130,11 +130,10 @@ val json = Json(JsonConfiguration.Stable)
 fun main(args: Array<String>) {
     // Parse arguments
     val parsed = parseArgs(
-        DefaultArguments(
-            booleans = boolArguments,
-            numbers = numberArguments,
-            strings = stringArguments
-        ), args
+        args,
+        booleans = boolArguments,
+        numbers = numberArguments,
+        strings = stringArguments
     )
 
     // Store argument parsing results in variables for better convenience
