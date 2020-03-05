@@ -4,3 +4,7 @@ TODO: Cache with invalidation based on access frequency
 TODO: Async buffered file writes
 TODO: Read buffer
 ✓: Reducer
+TODO: Documentation
+TODO: Parallel reducers
+TODO: Buffered string iterator
+TODO: Dynamic indexing
