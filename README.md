@@ -40,7 +40,7 @@ If directory is specified, program will index all the files within
   
 ### SPIMI (map-reduce) mode
 That is completely different kind of beast to old way of doing indexing. 
-It relies on SPIMI file structure described in the `(src/dict/spimi/README.md)[./src/dict/spimi/README.md]`. 
+It relies on SPIMI file structure described in the `src/dict/spimi/README.md`. 
 
 Files structure of indexed collections may be structured like this:
 - `<name>.sppckg` -- complete package
