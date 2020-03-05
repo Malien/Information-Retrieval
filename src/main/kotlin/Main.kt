@@ -14,6 +14,7 @@ import java.io.FileReader
 import java.io.FileWriter
 import java.nio.file.Files
 import java.nio.file.Paths
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.streams.asSequence
@@ -71,7 +72,8 @@ val boolArguments = hashSetOf(
     "disable-double-word",
     "disable-position",
     "map-reduce",
-    "r"
+    "r",
+    "pretty-print"
 )
 val numberArguments: HashMap<String, Double?> = hashMapOf(
     "p" to runtime.availableProcessors().toDouble()
@@ -139,6 +141,9 @@ fun main(args: Array<String>) {
     val saveLocation = parsed.strings["o"]
     val processingThreads = if (sequential) 1 else parsed.numbers["p"]!!.toInt()
     val recursive = "r" in parsed.booleans
+    val prettyPrint = "pretty-print" in parsed.booleans
+
+    val console = if (prettyPrint) FancyConsole(System.out) else PlainConsole(System.out)
 
     // List of files to index
     val filesSequence = parsed.unspecified.asSequence()
@@ -193,6 +198,8 @@ fun main(args: Array<String>) {
                 }
             }
 
+            val filesMapped = AtomicInteger(0)
+
             val spimiFiles = splits.mapIndexed { idx, split ->
                 async {
                     val mapper = SPIMIMapper()
@@ -210,22 +217,27 @@ fun main(args: Array<String>) {
                             .forEach {
                                 val hasMoreSpace = mapper.add(it, id)
                                 if (!hasMoreSpace) {
-                                    if (verbose) println("Mapper #$idx: done mapping chunk of $ENTRIES_COUNT elements")
+                                    if (verbose) console.println("Mapper #$idx: done mapping chunk of $ENTRIES_COUNT elements")
                                     mapper.unify()
-                                    if (verbose) println("Mapper #$idx: unified chunk down to ${mapper.size}")
+                                    if (verbose) console.println("Mapper #$idx: unified chunk down to ${mapper.size}")
                                     val dumpFile = mapper.dumpToDir(dictPath)
-                                    if (verbose) println("Mapper #$idx: dumped chunk ${dumpFile.filename}")
+                                    if (verbose) console.println("Mapper #$idx: dumped chunk ${dumpFile.filename}")
                                     list.add(dumpFile)
                                     mapper.clear()
                                 }
                             }
                         br.close()
+                        val currentlyMapped = filesMapped.incrementAndGet()
+                        if (verbose && currentlyMapped % 50 == 0) {
+                            val percentage = (currentlyMapped.toDouble() / files.size).round(digits = 2)
+                            console.statusLine = "Mapped $currentlyMapped files out of ${files.size} ($percentage%)"
+                        }
                     }
-                    if (verbose) println("Mapper #$idx: final mapping done")
+                    if (verbose) console.println("Mapper #$idx: final mapping done")
                     mapper.unify()
-                    if (verbose) println("Mapper #$idx: final unification done")
+                    if (verbose) console.println("Mapper #$idx: final unification done")
                     val file = mapper.dumpToDir(dictPath)
-                    if (verbose) println("Mapper #$idx: dumped final chunk ${file.filename}")
+                    if (verbose) console.println("Mapper #$idx: dumped final chunk ${file.filename}")
                     list.add(file)
                     list
                 }
