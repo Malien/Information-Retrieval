@@ -3,6 +3,7 @@ package dict.spimi
 import dict.DocumentID
 import dict.Documents
 import dict.emptyDocuments
+import util.ReadBuffer
 import util.decodeInt
 import util.decodeUShort
 import java.io.Closeable
@@ -102,11 +103,11 @@ class SPIMIFile(private val file: File) : Closeable, Iterable<SPIMIEntry>, Rando
             "Cannot retrieve entry from file with DB flag set on. Use getMulti(idx: UInt) instead"
         )
         fileStream.seek((preambleSize + idx * flags.entrySize).toLong())
-        val doc = flags.dicAction(
+        val strPtr = flags.spcAction(
                big = { fileStream.readInt() },
             medium = { fileStream.readUnsignedShort() },
              small = { fileStream.readUnsignedByte() }).toUInt()
-        val strPtr = flags.spcAction(
+        val doc = flags.dicAction(
                big = { fileStream.readInt() },
             medium = { fileStream.readUnsignedShort() },
              small = { fileStream.readUnsignedByte() }).toUInt()
@@ -128,11 +129,11 @@ class SPIMIFile(private val file: File) : Closeable, Iterable<SPIMIEntry>, Rando
                big = { fileStream.readInt() },
             medium = { fileStream.readUnsignedShort() },
              small = { fileStream.readUnsignedByte() }).toUInt()
-        val doc = flags.dpcAction(
+        val docPtr = flags.dpcAction(
                big = { fileStream.readInt() },
             medium = { fileStream.readUnsignedShort() },
              small = { fileStream.readUnsignedByte() }).toUInt()
-        return SPIMIMultiEntry(dereferenceString(strPtr), dereferenceDocuments(doc))
+        return SPIMIMultiEntry(dereferenceString(strPtr), dereferenceDocuments(docPtr))
     }
 
     fun getMulti(idx: Int) = getMulti(idx.toUInt())
@@ -165,9 +166,22 @@ class SPIMIFile(private val file: File) : Closeable, Iterable<SPIMIEntry>, Rando
     }
 
     override fun iterator(): Iterator<SPIMIEntry> = iterator {
-//     TODO: Read blocks of entries instead of one at the time
+        val readBuffer = ReadBuffer(size = 65536, onRead = { array, offset, length ->
+            fileStream.seek((preambleSize.toLong() + bytesRead))
+            fileStream.read(array, offset, length)
+        })
         for (i in 0u until entries) {
-            yield(get(i))
+            val strPtr = flags.spcAction(
+                   big = { readBuffer.readInt().toUInt() },
+                medium = { readBuffer.readShort().toUInt() },
+                 small = { readBuffer.readByte().toUInt() }
+            )
+            val doc = flags.dicAction(
+                   big = { readBuffer.readInt() },
+                medium = { readBuffer.readShort().toInt() },
+                 small = { readBuffer.readByte().toInt() }
+            )
+            yield(SPIMIEntry(dereferenceString(strPtr), DocumentID(doc)))
         }
     }
 

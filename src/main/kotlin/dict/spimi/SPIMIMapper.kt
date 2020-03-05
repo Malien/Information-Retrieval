@@ -118,15 +118,15 @@ class SPIMIMapper {
         for (i in 0 until size) {
             val entry = WordLong(entries[i])
             val strPtr = mapping[entry.wordID]!!
-            flags.dicAction(
-                   big = { writeBuffer.add(entry.docID.toInt()) },
-                medium = { writeBuffer.add(entry.docID.toShort()) },
-                 small = { writeBuffer.add(entry.docID.toByte()) }
-            )
             flags.spcAction(
                    big = { writeBuffer.add(strPtr.toInt()) },
                 medium = { writeBuffer.add(strPtr.toShort()) },
                  small = { writeBuffer.add(strPtr.toByte()) }
+            )
+            flags.dicAction(
+                   big = { writeBuffer.add(entry.docID.toInt()) },
+                medium = { writeBuffer.add(entry.docID.toShort()) },
+                 small = { writeBuffer.add(entry.docID.toByte()) }
             )
         }
         writeBuffer.flush()

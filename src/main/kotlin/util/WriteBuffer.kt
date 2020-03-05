@@ -7,8 +7,8 @@ const val WRITE_BLOCK_SIZE = 4096
 // Might consider doing what java does and just wrap OutputStream instead of using callbacks
 // as it doesn't operate on anything else than streams of files
 class WriteBuffer(
-    val size: Int = WRITE_BLOCK_SIZE,
-    val onWrite: (ByteArray, Int, Int) -> Unit,
+    size: Int = WRITE_BLOCK_SIZE,
+    val onWrite: (buffer: ByteArray, offset: Int, length: Int) -> Unit,
     val onClose: () -> Unit = {}
 ) : Closeable {
     val buffer = ByteArray(size)
@@ -17,11 +17,9 @@ class WriteBuffer(
     var bytesWritten = 0L
         private set
 
-    fun add(arr: ByteArray, offset: Int, length: Int) = dump(length) {
+    fun add(arr: ByteArray, offset: Int = 0, length: Int = arr.size) = dump(length) {
         System.arraycopy(arr, offset, buffer, ready, length)
     }
-
-    fun add(arr: ByteArray) = add(arr, 0, arr.size)
 
     fun add(long: Long) = dump(8) {
         buffer.encodeLong(ready, long)
