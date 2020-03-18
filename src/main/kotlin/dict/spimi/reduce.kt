@@ -26,11 +26,11 @@ fun reduce(
     val flags = SPIMIFlags()
 
     flags.db = true
-    flags.ss = true
+    flags.se = true
     flags.ud = true
     flags.es = externalStrings != null
     flags.ed = externalDocuments != null
-    if (files.any { !it.flags.ss }) throw UnsupportedOperationException("Cannot reduce entries on unsorted files")
+    if (files.any { !it.flags.se }) throw UnsupportedOperationException("Cannot reduce entries on unsorted files")
 
     flags.slc = files.all { it.flags.slc }
     flags.sluc = files.all { it.flags.sluc }

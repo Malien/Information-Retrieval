@@ -193,7 +193,7 @@ class SPIMIFile(private val file: File) : Closeable, Iterable<SPIMIEntry>, Rando
     override fun toString() = "SPIMIFile(${file.toRelativeString(File("."))})"
 
     fun binarySearch(word: String, fromIndex: UInt = 0u, toIndex: UInt = entries): Int {
-        if (!flags.ss && !flags.db && !flags.ud)
+        if (!flags.se && !flags.db && !flags.ud)
             throw UnsupportedOperationException("Binary search is only possible on sorted unified multi-entry files")
         var lo = fromIndex
         var hi = toIndex

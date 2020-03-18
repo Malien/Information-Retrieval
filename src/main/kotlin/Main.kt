@@ -292,7 +292,7 @@ fun main(args: Array<String>) {
                             val currentTime = System.currentTimeMillis()
                             val timeDelta = currentTime - prevTimeStamp.getAndSet(currentTime)
                             val byteDelta = currentlyMappedBytes - pastBytesMapped.getAndSet(currentlyMappedBytes)
-                            val indexingSpeed = (byteDelta.megabytes / (timeDelta * 1_000_000)).round(digits = 2)
+                            val indexingSpeed = (byteDelta.megabytes / (timeDelta) * 1_000_000.0).round(digits = 2)
                             console.statusLine = "Mapped $currentlyMappedFiles files out of ${files.size} ($percentage%)." +
                                     "Indexed ${currentlyMappedBytes.megabytes}Mb ($indexingSpeed Mb/s)"
                         }

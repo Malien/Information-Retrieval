@@ -40,15 +40,16 @@ Followed by 4 bytes that signify the length of documents block.
 - 9  - **DPUC** - Document pointer ultra compression
 
 **Reduction traits**
-- 10 - **SS**   - Whether entries are sorted by the strings in lexical order
+- 10 - **SE**   - Whether entries are sorted by the strings in lexical order
 - 11 - **UD**   - Whether entries contain unique pairs of string - document id
+- 12 - **SS**   - Whether strings are sorted in lexical order
 
 **Block presence**
-- 12 - **DB**   - Whether contains document block
+- 13 - **DB**   - Whether contains document block
 
 **External references**
-- 13 - **ES**   - Whether strings block is within another file
-- 14 - **ED**   - Whether document block is within another file
+- 14 - **ES**   - Whether strings block is within another file
+- 15 - **ED**   - Whether document block is within another file
 
 **Reserved**
 - bits from 15 to 31 are reserved for future use

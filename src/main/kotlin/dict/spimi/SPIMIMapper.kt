@@ -21,6 +21,7 @@ class SPIMIMapper {
         private set
 
     private var sorted = false
+    private var sortedStrings = false
     private var unified = false
     private var maxWordLength = 0u
     private var maxDocID = 0u
@@ -39,23 +40,30 @@ class SPIMIMapper {
         return size != ENTRIES_COUNT
     }
 
-    val entriesComparator: Comparator<ULong> = Comparator.comparing<ULong, String> { strings[WordLong(it).wordID.toInt()] }
-        .thenComparingInt { WordLong(it).docID.toInt() }
+    fun sortStrings() {
+        strings.sort()
+        val pointerMappings = UIntArray(strings.size)
+        for ((newAddr, string) in strings.withIndex()) {
+            val oldAddr = stringMap[string]!!
+            pointerMappings[oldAddr.toInt()] = newAddr.toUInt()
+            stringMap[string] = newAddr.toUInt()
+        }
+        entries.inplaceMap(0 until size) {
+            val (wordID, docID) = WordLong(it)
+            combine(pointerMappings[wordID.toInt()].toUInt(), docID)
+        }
+        sortedStrings = true
+    }
 
-    // TODO: Dude, this should be sorted in place with some sweet inline comparators
-    // TODO: Use the right comparator. Just like in the unify()
     fun sort() {
-        entries
-            .take(size)
-            .sortedWith(entriesComparator)
-            .forEachIndexed { idx, elem -> entries[idx] = elem }
+        if (!sortedStrings) sortStrings()
+        entries.asLongArray().sort(fromIndex = 0, toIndex = size)
         sorted = true
     }
 
     fun unify() {
-        val seq = if (sorted) entries.asSequence().take(size) else {
-            entries.asSequence().take(size).sortedWith(entriesComparator)
-        }
+        if (!sorted) sort()
+        val seq = entries.asSequence().take(size)
         val res = sequence {
             var prev: ULong? = null
             for (sorted in seq) {
@@ -94,7 +102,8 @@ class SPIMIMapper {
         flags.sluc = maxWordLength < UByte.MAX_VALUE
         flags.dic = maxDocID < UShort.MAX_VALUE
         flags.diuc = maxDocID < UByte.MAX_VALUE
-        flags.ss = sorted
+        flags.se = sorted
+        flags.ss = sortedStrings
         flags.ud = unified
 
         writeBuffer.skip(12)

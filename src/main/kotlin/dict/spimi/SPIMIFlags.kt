@@ -79,7 +79,7 @@ data class SPIMIFlags(var flags: UInt = 0u) {
         get() = get(9)
         set(value) = set(9, value)
 
-    var ss
+    var se
         get() = get(10)
         set(value) = set(10, value)
 
@@ -87,17 +87,21 @@ data class SPIMIFlags(var flags: UInt = 0u) {
         get() = get(11)
         set(value) = set(11, value)
 
-    var db
+    var ss
         get() = get(12)
         set(value) = set(12, value)
 
-    var es
+    var db
         get() = get(13)
         set(value) = set(13, value)
 
-    var ed
+    var es
         get() = get(14)
         set(value) = set(14, value)
+
+    var ed
+        get() = get(15)
+        set(value) = set(15, value)
 
     override fun toString() = buildString {
         append("SPIMIFlags(")
@@ -112,9 +116,10 @@ data class SPIMIFlags(var flags: UInt = 0u) {
             if (diuc) yield("DUIC")
             if (dpc) yield("DPC")
             if (dpuc) yield("DPUC")
-            if (ss) yield("SS")
+            if (se) yield("SE")
             if (ud) yield("UD")
             if (db) yield("DB")
+            if (ss) yield("SS")
             if (es) yield("ES")
             if (ed) yield("ED")
         }.joinToString(separator = ", "))

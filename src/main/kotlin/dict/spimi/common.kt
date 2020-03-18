@@ -25,7 +25,7 @@ val HEADER_SIZE = HEADER_FLAG_SIZE + HEADER_STRING_LENGTH_SIZE + HEADER_DOCUMENT
 
 @ExperimentalUnsignedTypes
 fun split(long: ULong): Pair<UInt, UInt> =
-    Pair((long shr 32).toUInt(), long.toUInt())
+    (long shr 32).toUInt() to long.toUInt()
 
 @ExperimentalUnsignedTypes
 fun combine(left: UInt, right: UInt): ULong =
@@ -40,5 +40,18 @@ inline class WordLong(val value: ULong) {
     constructor(wordID: UInt, docID: UInt) : this(combine(wordID, docID))
     constructor(wordID: UInt, documentID: DocumentID) : this(wordID, documentID.id.toUInt())
 
+    operator fun component1() = wordID
+    operator fun component2() = docID
+
     override fun toString() = "WordLong(wordID=$wordID, docID=$docID)"
+}
+
+@ExperimentalUnsignedTypes
+inline fun ULongArray.inplaceMap(transform: (value: ULong) -> ULong) = inplaceMap(indices, transform)
+
+@ExperimentalUnsignedTypes
+inline fun ULongArray.inplaceMap(inRange: IntRange, transform: (value: ULong) -> ULong) {
+    for (i in inRange) {
+        this[i] = transform(this[i])
+    }
 }
