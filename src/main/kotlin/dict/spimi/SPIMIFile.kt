@@ -21,6 +21,7 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
     }
 
     val filename get() = file.name
+    val filepath get() = file.path
 
     private var stringsStream: RandomAccessFile? = null
     private var documentsStream: RandomAccessFile? = null
@@ -100,6 +101,7 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
         if (flags.db) throw UnsupportedOperationException(
             "Cannot retrieve entry from file with DB flag set on. Use getMulti(idx: UInt) instead"
         )
+        if (idx > entries) throw IndexOutOfBoundsException("Size: $entries, index: $idx")
         fileStream.seek((preambleSize + idx * flags.entrySize).toLong())
         val doc = flags.dicAction(
                big = { fileStream.readInt() },
@@ -122,6 +124,7 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
         if (!flags.db) throw UnsupportedOperationException(
             "Cannot retrieve multi-entry from file without DB flag set on. Use get(idx: UInt) instead"
         )
+        if (idx > entries) throw IndexOutOfBoundsException("Size: $entries, index: $idx")
         fileStream.seek((preambleSize + idx * flags.entrySize).toLong())
         val strPtr = flags.spcAction(
                big = { fileStream.readInt() },
@@ -215,5 +218,7 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
     }
 
     operator fun get(word: String) = find(word)
+
+    override val manifest = Manifest(rootDictionary = filepath)
 
 }

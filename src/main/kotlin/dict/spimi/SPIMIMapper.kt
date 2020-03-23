@@ -263,6 +263,10 @@ class SPIMIMapper {
         if (!sorted) sort()
         var start = 0
         for (delimiter in delimiters) {
+            if (strings.isEmpty()) {
+                dumpChunkInRange(delimiter, start until start)
+                continue
+            }
             var str = strings.first()
             var idx = start
             while (str < delimiter && idx < this@SPIMIMapper.size) {

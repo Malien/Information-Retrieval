@@ -70,6 +70,7 @@ inline fun <R> measureReturnTimeMillis(block: () -> R): Pair<R, Long> {
  * Deserialize object from a JSON file
  * @param path path to a JSON file
  * @param serializer a serializer used to deserialize file
+ * @return deserialized object
  */
 fun <T> fromJSONFile(path: String, serializer: KSerializer<T>): T {
     val readBuffer = CharArray(4096)
@@ -82,6 +83,19 @@ fun <T> fromJSONFile(path: String, serializer: KSerializer<T>): T {
         }
     }
     return json.parse(serializer, serializedObject)
+}
+
+/**
+ * Serializes object to JSON file
+ * @param obj object to be serialized and saved
+ * @param path path at which object is to be saved
+ * @param serializer a serializer used to serialize object to JSON
+ */
+fun <T> toJSONFile(obj: T, path: String, serializer: KSerializer<T>) {
+    val string = json.stringify(serializer, obj)
+    val out = FileWriter(path)
+    out.write(string)
+    out.close()
 }
 
 /**
@@ -246,10 +260,9 @@ fun main(args: Array<String>) {
         val (dict, documents, timeTook) = if (from != null) {
             // Loading dict from disk
             if (files.isNotEmpty() && verbose) println("Specified dict load location. Indexing won't be done")
-            IndexingResult(
-                SPIMIFile("$from/dictionary.spimi"),
-                fromJSONFile("$from/registry.json", DocumentRegistry.serializer())
-            )
+            val manifest = fromJSONFile("$from/manifest.json", Manifest.serializer())
+            val registry = fromJSONFile("$from/registry.json", DocumentRegistry.serializer())
+            IndexingResult(manifest.openDict(), registry)
         } else {
             // Indexing dict to a disk
             val dictPath = saveLocation ?: "./chunks.sppkg"
@@ -347,31 +360,31 @@ fun main(args: Array<String>) {
             // Reduce step
             val (reduced, reduceTime) = measureReturnTimeMillis {
                 rotate(fileList).asSequence().mapIndexed { idx, file ->
-                    fun pathname(filename: String) =
-                        if (idx < delimiters.size) "$dictPath/${delimiters[idx]}/$filename"
-                        else "$dictPath/.final/$filename"
+                    async {
+                        fun pathname(filename: String) =
+                            if (idx < delimiters.size) "$dictPath/${delimiters[idx]}/$filename"
+                            else "$dictPath/.final/$filename"
 
-                    val arr = file.asSequence().toMutableList().toTypedArray()
-                    reduce(
-                        arr,
-                        to = pathname("dictionary.spimi"),
-                        externalDocuments = pathname("documents.sdoc")
-                    )
-                }.toList()
+                        val arr = file.asSequence().toMutableList().toTypedArray()
+                        reduce(
+                            arr,
+                            to = pathname("dictionary.spimi"),
+                            externalDocuments = pathname("documents.sdoc")
+                        )
+                    }
+                }.toList().map { it.get() }
             }
             if (verbose) println("Reduction done in $reduceTime ms")
 
             // Remove temporary mapping files
             for (file in fileList.flatten()) file.delete()
-            IndexingResult(SPIMIMultiFile(reduced), documents, mapTime + reduceTime)
+            IndexingResult(SPIMIMultiFile(reduced, delimiters), documents, mapTime + reduceTime)
         }
 
         // Save registry to the disk
         if (saveLocation != null) {
-            val registry = json.stringify(DocumentRegistry.serializer(), documents)
-            val out = FileWriter("$saveLocation/registry.json")
-            out.write(registry)
-            out.close()
+            toJSONFile(documents, "$saveLocation/registry.json", DocumentRegistry.serializer())
+            toJSONFile(dict.manifest, "$saveLocation/manifest.json", Manifest.serializer())
         }
 
         // Print stats

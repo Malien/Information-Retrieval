@@ -54,4 +54,4 @@ inline class WordLong(val value: ULong) {
 }
 
 @Serializable
-data class Range(val lowerLimit: String, val dictionary: String)
+data class Range(val lowerLimit: String? = null, val dictionary: String)

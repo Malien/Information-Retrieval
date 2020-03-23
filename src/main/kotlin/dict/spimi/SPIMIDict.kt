@@ -9,4 +9,6 @@ interface SPIMIDict: Closeable {
 
     fun find(word: String): Documents
     fun delete()
+
+    val manifest: Manifest
 }
