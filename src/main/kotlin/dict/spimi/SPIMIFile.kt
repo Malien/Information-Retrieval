@@ -5,12 +5,11 @@ import dict.Documents
 import dict.emptyDocuments
 import util.decodeInt
 import util.decodeUShort
-import java.io.Closeable
 import java.io.File
 import java.io.RandomAccessFile
 
 @ExperimentalUnsignedTypes
-class SPIMIFile(private val file: File) : Closeable, Iterable<SPIMIEntry>, RandomAccess {
+class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SPIMIDict {
     constructor(path: String): this(File(path))
 
     private val fileStream = RandomAccessFile(file, "r")
@@ -28,7 +27,7 @@ class SPIMIFile(private val file: File) : Closeable, Iterable<SPIMIEntry>, Rando
     val flags: SPIMIFlags
     val stringsBlockSize: UInt
     val documentsBlockSize: UInt
-    val entries: UInt
+    override val entries: UInt
     val preambleSize get() = HEADER_SIZE + stringsBlockSize + documentsBlockSize
 
     init {
@@ -148,7 +147,7 @@ class SPIMIFile(private val file: File) : Closeable, Iterable<SPIMIEntry>, Rando
 
     operator fun get(idx: Int) = get(idx.toUInt())
 
-    fun delete() {
+    override fun delete() {
         close()
         file.delete()
     }
@@ -211,7 +210,7 @@ class SPIMIFile(private val file: File) : Closeable, Iterable<SPIMIEntry>, Rando
         return -(lo.toInt()) - 1
     }
 
-    fun find(word: String): Documents = binarySearch(word).let { idx ->
+    override fun find(word: String): Documents = binarySearch(word).let { idx ->
         if (idx < 0) emptyDocuments() else Documents(getMulti(idx).second)
     }
 

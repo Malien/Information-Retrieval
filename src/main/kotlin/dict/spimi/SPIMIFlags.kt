@@ -35,7 +35,7 @@ data class SPIMIFlags(var flags: UInt = 0u) {
     inline val stringPointerSize get() = spcAction({ 4u }, { 2u }, { 1u })
     inline val documentBlockSize get() = dscAction({ 4u }, { 2u }, { 1u })
     inline val documentIDSize get() = dicAction({ 4u }, { 2u }, { 1u })
-    inline val documentPointerSize get() = spcAction({ 4u }, { 2u }, { 1u })
+    inline val documentPointerSize get() = dpcAction({ 4u }, { 2u }, { 1u })
 
     val entrySize get() = stringPointerSize + if (db) documentPointerSize else documentIDSize
 

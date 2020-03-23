@@ -12,6 +12,30 @@ import kotlin.collections.ArrayList
 import kotlin.collections.HashMap
 
 @ExperimentalUnsignedTypes
+inline fun ULongArray.inPlaceMap(inRange: IntRange, transform: (value: ULong) -> ULong) {
+    for (i in inRange) {
+        this[i] = transform(this[i])
+    }
+}
+
+val IntRange.length get() = last - first + 1
+
+@ExperimentalUnsignedTypes
+fun ULongArray.sequenceOf(range: IntRange) = range.asSequence().map { this[it] }
+
+fun <C, T> C.sequenceOf(range: IntRange)
+    where C : List<T>,
+          C : RandomAccess = range.asSequence().map { this[it] }
+
+inline fun IntRange.mapRange(transform: (value: Int) -> Int) =
+    IntRange(start = transform(start), endInclusive = transform(endInclusive))
+
+fun <T> buildList(capacity: Int, builder: MutableList<T>.() -> Unit) =
+    ArrayList<T>(capacity).apply(builder)
+
+fun <T> buildList(builder: MutableList<T>.() -> Unit) = ArrayList<T>().apply(builder)
+
+@ExperimentalUnsignedTypes
 class SPIMIMapper {
 
     private val stringMap = HashMap<String, UInt>()
@@ -33,6 +57,7 @@ class SPIMIMapper {
         sorted = false
         unified = false
         val wordID = stringMap.getOrPut(word) {
+            sortedStrings = false
             strings.add(word)
             (strings.size - 1).toUInt()
         }
@@ -48,7 +73,7 @@ class SPIMIMapper {
             pointerMappings[oldAddr.toInt()] = newAddr.toUInt()
             stringMap[string] = newAddr.toUInt()
         }
-        entries.inplaceMap(0 until size) {
+        entries.inPlaceMap(0 until size) {
             val (wordID, docID) = WordLong(it)
             combine(pointerMappings[wordID.toInt()].toUInt(), docID)
         }
@@ -91,10 +116,58 @@ class SPIMIMapper {
         return SPIMIFile(dumpfile)
     }
 
+    private fun dumpStrings(range: IntRange, writeBuffer: WriteBuffer, flags: SPIMIFlags): UIntArray {
+        val mapping = UIntArray(range.length)
+        for (idx in range) {
+            val string = strings[idx]
+            mapping[idx - range.first] = writeBuffer.bytesWritten.toUInt()
+            val bytes = string.toUtf8Bytes()
+            flags.slcAction(
+                   big = { writeBuffer.add(bytes.size) },
+                medium = { writeBuffer.add(bytes.size.toShort()) },
+                 small = { writeBuffer.add(bytes.size.toByte()) }
+            )
+            writeBuffer.add(bytes)
+        }
+        return mapping
+    }
+
+    private fun dumpEntries(range: IntRange,
+                            writeBuffer: WriteBuffer,
+                            flags: SPIMIFlags,
+                            mapping: UIntArray,
+                            stringOffset: Int = 0
+    ) {
+        for (i in range) {
+            val entry = WordLong(entries[i])
+            val strPtr = mapping[entry.wordID.toInt() - stringOffset]
+            flags.dicAction(
+                   big = { writeBuffer.add(entry.docID.toInt()) },
+                medium = { writeBuffer.add(entry.docID.toShort()) },
+                 small = { writeBuffer.add(entry.docID.toByte()) }
+            )
+            flags.spcAction(
+                   big = { writeBuffer.add(strPtr.toInt()) },
+                medium = { writeBuffer.add(strPtr.toShort()) },
+                 small = { writeBuffer.add(strPtr.toByte()) }
+            )
+        }
+
+    }
+
+    private fun dumpHeader(flags: SPIMIFlags,
+                           stringsBlockSize: UInt,
+                           writeBuffer: WriteBuffer
+    ) {
+        writeBuffer.add(flags.flags.toInt())
+        writeBuffer.add(stringsBlockSize.toInt())
+        writeBuffer.add(0)
+    }
+
     fun dump(file: File) {
         // TODO: Add guards to get notified if values overflow UInt32
         val out = RandomAccessFile(file, "rw")
-        val writeBuffer = WriteBuffer(size = 65536, onWrite = out::write)
+        val writeBuffer = WriteBuffer(size = 65536, onWrite = out::write, onClose = out::close)
 
         // Setting up flags
         val flags = SPIMIFlags()
@@ -107,50 +180,108 @@ class SPIMIMapper {
         flags.ud = unified
 
         writeBuffer.skip(12)
-        val mapping = HashMap<UInt, UInt>()
-        for ((string, wordID) in stringMap) {
-            val bytes = string.toUtf8Bytes()
-            mapping[wordID] = writeBuffer.bytesWritten.toUInt()
-            flags.slcAction(
-                   big = { writeBuffer.add(bytes.size) },
-                medium = { writeBuffer.add(bytes.size.toShort()) },
-                 small = { writeBuffer.add(bytes.size.toByte()) }
-            )
-            writeBuffer.add(bytes)
-        }
+        val mapping = dumpStrings(strings.indices, writeBuffer, flags)
 
         // Rest of the flags
         val stringsSize = writeBuffer.bytesWritten.toULong() - HEADER_SIZE
         flags.spc = stringsSize < UShort.MAX_VALUE
         flags.spuc = stringsSize < UByte.MAX_VALUE
 
-        for (i in 0 until size) {
-            val entry = WordLong(entries[i])
-            val strPtr = mapping[entry.wordID]!!
-            flags.dicAction(
-                   big = { writeBuffer.add(entry.docID.toInt()) },
-                medium = { writeBuffer.add(entry.docID.toShort()) },
-                 small = { writeBuffer.add(entry.docID.toByte()) }
-            )
-            flags.spcAction(
-                   big = { writeBuffer.add(strPtr.toInt()) },
-                medium = { writeBuffer.add(strPtr.toShort()) },
-                 small = { writeBuffer.add(strPtr.toByte()) }
-            )
-        }
+        dumpEntries(0 until size, writeBuffer, flags, mapping)
         writeBuffer.flush()
 
         out.seek(0)
-        out.writeInt(flags.flags.toInt())
-        out.writeInt(stringsSize.toInt())
-        out.close()
+        dumpHeader(flags, stringsBlockSize = stringsSize.toUInt(), writeBuffer = writeBuffer)
+        writeBuffer.close()
     }
+
+    fun dumpRange(to: File, range: IntRange) {
+        assert(sorted && sortedStrings)
+        val out = RandomAccessFile(to, "rw")
+        val writeBuffer = WriteBuffer(size = 65536, onWrite = out::write, onClose = out::close)
+
+        val stringRange = range.mapRange { first(if (it < size) entries[it] else entries[size - 1]).toInt() }
+
+        // Setting up flags
+        val flags = SPIMIFlags()
+        if (maxWordLength < UByte.MAX_VALUE) {
+            flags.slc = true
+            flags.sluc = true
+        } else {
+            val maxLength = strings.sequenceOf(stringRange)
+                .map { it.length.toUInt() }
+                .max()
+                ?: 0u
+            flags.slc = maxLength < UShort.MAX_VALUE
+            flags.sluc = maxLength < UByte.MAX_VALUE
+        }
+        if (maxDocID < UByte.MAX_VALUE) {
+            flags.slc = true
+            flags.sluc = true
+        } else {
+            val maxDocID = entries.sequenceOf(range)
+                .map { second(it) }
+                .max()
+                ?: 0u
+            flags.dic = maxDocID < UShort.MAX_VALUE
+            flags.diuc = maxDocID < UByte.MAX_VALUE
+        }
+        flags.se = true
+        flags.ss = true
+        flags.ud = unified
+
+        writeBuffer.skip(12)
+        val mapping = dumpStrings(stringRange, writeBuffer, flags)
+
+        // Rest of the flags
+        val stringsSize = writeBuffer.bytesWritten.toULong() - HEADER_SIZE
+        flags.spc = stringsSize < UShort.MAX_VALUE
+        flags.spuc = stringsSize < UByte.MAX_VALUE
+
+        dumpEntries(range, writeBuffer, flags, mapping, stringOffset = stringRange.first)
+        writeBuffer.flush()
+
+        out.seek(0)
+        dumpHeader(flags, stringsBlockSize = stringsSize.toUInt(), writeBuffer = writeBuffer)
+        writeBuffer.close()
+    }
+
+    fun dumpRanges(dir: String, delimiters: Array<String>) = dumpRanges(File(dir), delimiters)
+
+    fun dumpRanges(dir: File, delimiters: Array<String>): Array<SPIMIFile> = buildList<SPIMIFile> {
+        fun dumpChunkInRange(rangeName: String, range: IntRange) {
+            val uuid = UUID.randomUUID().toString()
+            val dumpRange = dir.resolve(rangeName)
+            dumpRange.mkdir()
+            val dumpfile = dumpRange.resolve(uuid)
+            if (!dumpfile.createNewFile()) throw FileAlreadyExistsException(dumpfile)
+            dumpRange(dumpfile, range)
+            add(SPIMIFile(dumpfile))
+        }
+
+        if (!dir.isDirectory) throw FileNotFoundException("$dir is not a directory")
+        if (!sorted) sort()
+        var start = 0
+        for (delimiter in delimiters) {
+            var str = strings.first()
+            var idx = start
+            while (str < delimiter && idx < this@SPIMIMapper.size) {
+                idx++
+                val entry = entries[idx]
+                str = strings[first(entry).toInt()]
+            }
+            dumpChunkInRange(delimiter, start until idx)
+            start = idx
+        }
+        dumpChunkInRange(".final", start until this@SPIMIMapper.size)
+    }.toTypedArray()
 
     fun clear() {
         stringMap.clear()
         strings.clear()
         size = 0
 
+        sortedStrings = false
         sorted = false
         unified = false
         maxWordLength = 0u

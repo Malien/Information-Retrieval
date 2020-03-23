@@ -1,6 +1,7 @@
 package dict.spimi
 
 import dict.DocumentID
+import kotlinx.serialization.Serializable
 
 data class SPIMIEntry(val word: String, val document: DocumentID): Comparable<SPIMIEntry> {
     override fun compareTo(other: SPIMIEntry): Int {
@@ -25,16 +26,22 @@ val HEADER_SIZE = HEADER_FLAG_SIZE + HEADER_STRING_LENGTH_SIZE + HEADER_DOCUMENT
 
 @ExperimentalUnsignedTypes
 fun split(long: ULong): Pair<UInt, UInt> =
-    (long shr 32).toUInt() to long.toUInt()
+    first(long) to second(long)
 
 @ExperimentalUnsignedTypes
 fun combine(left: UInt, right: UInt): ULong =
     (left.toULong() shl 32) or right.toULong()
 
 @ExperimentalUnsignedTypes
+fun first(of: ULong): UInt = (of shr 32).toUInt()
+
+@ExperimentalUnsignedTypes
+fun second(of: ULong): UInt = of.toUInt()
+
+@ExperimentalUnsignedTypes
 inline class WordLong(val value: ULong) {
-    val wordID get() = value.shr(32).toUInt()
-    val docID get() = value.toUInt()
+    val wordID get() = first(value)
+    val docID get() = second(value)
     val pair get() = split(value)
 
     constructor(wordID: UInt, docID: UInt) : this(combine(wordID, docID))
@@ -46,12 +53,5 @@ inline class WordLong(val value: ULong) {
     override fun toString() = "WordLong(wordID=$wordID, docID=$docID)"
 }
 
-@ExperimentalUnsignedTypes
-inline fun ULongArray.inplaceMap(transform: (value: ULong) -> ULong) = inplaceMap(indices, transform)
-
-@ExperimentalUnsignedTypes
-inline fun ULongArray.inplaceMap(inRange: IntRange, transform: (value: ULong) -> ULong) {
-    for (i in inRange) {
-        this[i] = transform(this[i])
-    }
-}
+@Serializable
+data class Range(val lowerLimit: String, val dictionary: String)

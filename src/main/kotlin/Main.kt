@@ -1,8 +1,5 @@
 import dict.*
-import dict.spimi.ENTRIES_COUNT
-import dict.spimi.SPIMIFile
-import dict.spimi.SPIMIMapper
-import dict.spimi.reduce
+import dict.spimi.*
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonConfiguration
@@ -55,7 +52,7 @@ fun getFiles(path: String, extension: String? = null): Sequence<File> {
  * @return sequence of files
  */
 fun getFilesRecursively(path: String): Sequence<File> =
-    Files.walk(Paths.get(path)).filter{ Files.isRegularFile(it) }.map { it.toFile() }.asSequence()
+    Files.walk(Paths.get(path)).filter { Files.isRegularFile(it) }.map { it.toFile() }.asSequence()
 
 /**
  * Measures time that block execution took, and
@@ -88,13 +85,30 @@ fun <T> fromJSONFile(path: String, serializer: KSerializer<T>): T {
 }
 
 /**
+ * Transpose matrix(?) of values
+ * @param input Array of Arrays of T
+ * @return iterator of iterators on values in rotated order
+ */
+fun <T> rotate(input: Array<Array<T>>) = iterator {
+    val segments = input.asSequence().map { it.size }.max() ?: 0
+    for (i in 0 until segments) {
+        yield(iterator {
+            for (arr in input) {
+                if (i < arr.size) yield(arr[i])
+            }
+        })
+    }
+}
+
+/**
  * Retrieves and parses tokens from the file. And constructs sequence of tokens
  * @return Sequence of lexical tokens
  */
-val BufferedReader.tokenSequence get() = this.lineSequence()
-    .flatMap { it.split(Regex("\\W+")).asSequence() }
-    .filter  { it.isNotBlank() }
-    .map     { it.toLowerCase() }
+val BufferedReader.tokenSequence
+    get() = this.lineSequence()
+        .flatMap { it.split(Regex("\\W+")).asSequence() }
+        .filter  { it.isNotBlank() }
+        .map     { it.toLowerCase() }
 
 val runtime: Runtime = Runtime.getRuntime()
 
@@ -225,11 +239,9 @@ fun main(args: Array<String>) {
             if (doubleWord) println("Double-word dict is disabled to support map-reduce indexing")
             if (positioned) println("Positioned dict is disabled to support map-reduce indexing") // TODO
             if (jokerType != null) println("Joker is disabled to support map-reduce indexing")
-            if (from != null) println("Cannot load dict when map-reduce is enables")
-            if (interactive) println("Interactive sessions are not supported in map-reduce mode")
         }
 
-        data class IndexingResult(val file: SPIMIFile, val documents: DocumentRegistry, val timeTook: Long = 0)
+        data class IndexingResult(val file: SPIMIDict, val documents: DocumentRegistry, val timeTook: Long = 0)
 
         val (dict, documents, timeTook) = if (from != null) {
             // Loading dict from disk
@@ -260,11 +272,29 @@ fun main(args: Array<String>) {
             val pastBytesMapped = AtomicLong(0)
             val prevTimeStamp = AtomicLong(System.currentTimeMillis())
 
+            val splitPoints = "0abcdefghijklmnopqrstuvwxyz"
+            val delimiterLength = 4
+            val fraction = 1.0 / processingThreads
+            val splitFraction = 1.0 / splitPoints.length
+
+            val delimiters = Array(processingThreads - 1) {
+                buildString {
+                    var position = (it + 1) * fraction
+                    repeat(times = delimiterLength) {
+                        val stop = position / splitFraction
+                        val idx = stop.toInt()
+                        if (position < splitFraction) return@repeat
+                        append(splitPoints[idx])
+                        position = stop - idx
+                    }
+                }
+            }
+
             // Mapping
             val spimiFiles = splits.mapIndexed { idx, split ->
                 async { // Launches separate thread of execution which returns a value
                     val mapper = SPIMIMapper()
-                    val list = ArrayList<SPIMIFile>()
+                    val list = ArrayList<Array<SPIMIFile>>()
                     for (file in split) {
                         val id: DocumentID
                         // Register document in centralized dictionary
@@ -278,8 +308,8 @@ fun main(args: Array<String>) {
                                 if (verbose) console.println("Mapper #$idx: done mapping chunk of $ENTRIES_COUNT elements")
                                 mapper.unify()
                                 if (verbose) console.println("Mapper #$idx: unified chunk down to ${mapper.size}")
-                                val dumpFile = mapper.dumpToDir(dictPath)
-                                if (verbose) console.println("Mapper #$idx: dumped chunk ${dumpFile.filename}")
+                                val dumpFile = mapper.dumpRanges(dictPath, delimiters)
+                                if (verbose) console.println("Mapper #$idx: dumped chunks")
                                 list.add(dumpFile)
                                 mapper.clear()
                             }
@@ -293,15 +323,16 @@ fun main(args: Array<String>) {
                             val timeDelta = currentTime - prevTimeStamp.getAndSet(currentTime)
                             val byteDelta = currentlyMappedBytes - pastBytesMapped.getAndSet(currentlyMappedBytes)
                             val indexingSpeed = (byteDelta.megabytes / (timeDelta) * 1_000_000.0).round(digits = 2)
-                            console.statusLine = "Mapped $currentlyMappedFiles files out of ${files.size} ($percentage%)." +
-                                    "Indexed ${currentlyMappedBytes.megabytes}Mb ($indexingSpeed Mb/s)"
+                            console.statusLine =
+                                "Mapped $currentlyMappedFiles files out of ${files.size} ($percentage%)." +
+                                        "Indexed ${currentlyMappedBytes.megabytes}Mb ($indexingSpeed Mb/s)"
                         }
                     }
                     if (verbose) console.println("Mapper #$idx: final mapping done")
                     mapper.unify()
                     if (verbose) console.println("Mapper #$idx: final unification done")
-                    val file = mapper.dumpToDir(dictPath)
-                    if (verbose) console.println("Mapper #$idx: dumped final chunk ${file.filename}")
+                    val file = mapper.dumpRanges(dictPath, delimiters)
+                    if (verbose) console.println("Mapper #$idx: dumped final chunks")
                     list.add(file)
                     list
                 }
@@ -315,17 +346,24 @@ fun main(args: Array<String>) {
 
             // Reduce step
             val (reduced, reduceTime) = measureReturnTimeMillis {
-                reduce(
-                    fileList,
-                    to = "$dictPath/dictionary.spimi",
-                    externalDocuments = "$dictPath/documents.sstr"
-                )
+                rotate(fileList).asSequence().mapIndexed { idx, file ->
+                    fun pathname(filename: String) =
+                        if (idx < delimiters.size) "$dictPath/${delimiters[idx]}/$filename"
+                        else "$dictPath/.final/$filename"
+
+                    val arr = file.asSequence().toMutableList().toTypedArray()
+                    reduce(
+                        arr,
+                        to = pathname("dictionary.spimi"),
+                        externalDocuments = pathname("documents.sdoc")
+                    )
+                }.toList()
             }
             if (verbose) println("Reduction done in $reduceTime ms")
 
             // Remove temporary mapping files
-            for (file in fileList) file.delete()
-            IndexingResult(reduced, documents, mapTime + reduceTime)
+            for (file in fileList.flatten()) file.delete()
+            IndexingResult(SPIMIMultiFile(reduced), documents, mapTime + reduceTime)
         }
 
         // Save registry to the disk
