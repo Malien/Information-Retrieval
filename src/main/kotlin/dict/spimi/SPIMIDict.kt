@@ -5,7 +5,7 @@ import java.io.Closeable
 
 interface SPIMIDict: Closeable {
     @ExperimentalUnsignedTypes
-    val entries: UInt
+    val count: UInt
 
     fun find(word: String): Documents
     fun delete()

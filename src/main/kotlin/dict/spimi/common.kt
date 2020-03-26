@@ -2,6 +2,10 @@ package dict.spimi
 
 import dict.DocumentID
 import kotlinx.serialization.Serializable
+import util.combine
+import util.firstUInt
+import util.secondUInt
+import util.split
 
 data class SPIMIEntry(val word: String, val document: DocumentID): Comparable<SPIMIEntry> {
     override fun compareTo(other: SPIMIEntry): Int {
@@ -25,23 +29,9 @@ const val HEADER_DOCUMENTS_LENGTH_SIZE = 4u
 val HEADER_SIZE = HEADER_FLAG_SIZE + HEADER_STRING_LENGTH_SIZE + HEADER_DOCUMENTS_LENGTH_SIZE
 
 @ExperimentalUnsignedTypes
-fun split(long: ULong): Pair<UInt, UInt> =
-    first(long) to second(long)
-
-@ExperimentalUnsignedTypes
-fun combine(left: UInt, right: UInt): ULong =
-    (left.toULong() shl 32) or right.toULong()
-
-@ExperimentalUnsignedTypes
-fun first(of: ULong): UInt = (of shr 32).toUInt()
-
-@ExperimentalUnsignedTypes
-fun second(of: ULong): UInt = of.toUInt()
-
-@ExperimentalUnsignedTypes
-inline class WordLong(val value: ULong) {
-    val wordID get() = first(value)
-    val docID get() = second(value)
+inline class WordLong(val value: ULong): Comparable<WordLong> {
+    val wordID get() = value.firstUInt
+    val docID get() = value.secondUInt
     val pair get() = split(value)
 
     constructor(wordID: UInt, docID: UInt) : this(combine(wordID, docID))
@@ -51,6 +41,8 @@ inline class WordLong(val value: ULong) {
     operator fun component2() = docID
 
     override fun toString() = "WordLong(wordID=$wordID, docID=$docID)"
+
+    override fun compareTo(other: WordLong) = value.compareTo(other.value)
 }
 
 @Serializable

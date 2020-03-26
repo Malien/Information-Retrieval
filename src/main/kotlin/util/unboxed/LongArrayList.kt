@@ -53,6 +53,12 @@ class LongArrayList(initialSize: Int = 10, private val growthFactor: Float = 1.5
         return true
     }
 
+    fun toArray() = arr.copyOfRange(fromIndex = 0, toIndex = size)
+
+    fun clear() {
+        size = 0
+    }
+
     override fun hashCode(): Int {
         var result = arr.contentHashCode()
         result = 31 * result + size

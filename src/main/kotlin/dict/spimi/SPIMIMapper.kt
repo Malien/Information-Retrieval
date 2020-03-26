@@ -3,6 +3,9 @@ package dict.spimi
 import dict.DocumentID
 import kotlinx.serialization.toUtf8Bytes
 import util.WriteBuffer
+import util.combine
+import util.firstInt
+import util.secondUInt
 import util.unboxed.toULongList
 import java.io.File
 import java.io.FileNotFoundException
@@ -139,20 +142,19 @@ class SPIMIMapper {
                             stringOffset: Int = 0
     ) {
         for (i in range) {
-            val entry = WordLong(entries[i])
-            val strPtr = mapping[entry.wordID.toInt() - stringOffset]
-            flags.dicAction(
-                   big = { writeBuffer.add(entry.docID.toInt()) },
-                medium = { writeBuffer.add(entry.docID.toShort()) },
-                 small = { writeBuffer.add(entry.docID.toByte()) }
-            )
+            val (wordID, docID) = WordLong(entries[i])
+            val strPtr = mapping[wordID.toInt() - stringOffset]
             flags.spcAction(
                    big = { writeBuffer.add(strPtr.toInt()) },
                 medium = { writeBuffer.add(strPtr.toShort()) },
                  small = { writeBuffer.add(strPtr.toByte()) }
             )
+            flags.dicAction(
+                   big = { writeBuffer.add(docID.toInt()) },
+                medium = { writeBuffer.add(docID.toShort()) },
+                 small = { writeBuffer.add(docID.toByte()) }
+            )
         }
-
     }
 
     private fun dumpHeader(flags: SPIMIFlags,
@@ -200,7 +202,7 @@ class SPIMIMapper {
         val out = RandomAccessFile(to, "rw")
         val writeBuffer = WriteBuffer(size = 65536, onWrite = out::write, onClose = out::close)
 
-        val stringRange = range.mapRange { first(if (it < size) entries[it] else entries[size - 1]).toInt() }
+        val stringRange = range.mapRange { (if (it < size) entries[it] else entries[size - 1]).firstInt }
 
         // Setting up flags
         val flags = SPIMIFlags()
@@ -220,7 +222,7 @@ class SPIMIMapper {
             flags.sluc = true
         } else {
             val maxDocID = entries.sequenceOf(range)
-                .map { second(it) }
+                .map { it.secondUInt }
                 .max()
                 ?: 0u
             flags.dic = maxDocID < UShort.MAX_VALUE
@@ -272,7 +274,7 @@ class SPIMIMapper {
             while (str < delimiter && idx < this@SPIMIMapper.size) {
                 idx++
                 val entry = entries[idx]
-                str = strings[first(entry).toInt()]
+                str = strings[entry.firstInt]
             }
             dumpChunkInRange(delimiter, start until idx)
             start = idx

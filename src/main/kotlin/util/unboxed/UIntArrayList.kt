@@ -42,6 +42,12 @@ class UIntArrayList(initialSize: Int = 10, private val growthFactor: Float = 1.5
         for (i in 0 until size) yield(arr[i])
     }
 
+    fun toArray() = arr.copyOfRange(fromIndex = 0, toIndex = size)
+
+    fun clear() {
+        size = 0
+    }
+
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (javaClass != other?.javaClass) return false

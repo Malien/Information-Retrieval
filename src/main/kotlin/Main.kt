@@ -390,7 +390,7 @@ fun main(args: Array<String>) {
         // Print stats
         if (stat) {
             val memoryUsage = (runtime.totalMemory() - runtime.freeMemory()).megabytes
-            val unique = dict.entries
+            val unique = dict.count
             val count = files.count()
             val mbs = size.megabytes
             println(

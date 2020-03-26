@@ -5,7 +5,7 @@ import dict.Documents
 @ExperimentalUnsignedTypes
 class SPIMIMultiFile(private val files: List<SPIMIFile>, private val delimiters: Array<String>) : SPIMIDict {
 
-    override val entries: UInt = files.fold(0u) { acc, file -> acc + file.entries }
+    override val count: UInt = files.fold(0u) { acc, file -> acc + file.count }
 
     fun enclosingFile(word: String): SPIMIFile {
         for ((idx, delimiter) in delimiters.withIndex()) {

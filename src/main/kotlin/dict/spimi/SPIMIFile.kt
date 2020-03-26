@@ -28,7 +28,7 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
     val flags: SPIMIFlags
     val stringsBlockSize: UInt
     val documentsBlockSize: UInt
-    override val entries: UInt
+    override val count: UInt
     val preambleSize get() = HEADER_SIZE + stringsBlockSize + documentsBlockSize
 
     init {
@@ -36,7 +36,7 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
         stringsBlockSize = fileStream.readInt().toUInt()
         documentsBlockSize = fileStream.readInt().toUInt()
         flags = SPIMIFlags(flagsVal)
-        entries =
+        count =
             ((fileStream.length().toULong() - preambleSize) / flags.entrySize).toUInt()
         if (flags.es) {
             val buffer = ByteArray(stringsBlockSize.toInt())
@@ -55,18 +55,20 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
     }
 
     fun dereferenceString(pointer: UInt) =
-        stringsCache.getOrPut(pointer) {
-            val stream = stringsStream ?: fileStream
-            stream.seek(pointer.toLong())
-            val length =
-                flags.slcAction(
-                       big = { stream.readInt() },
-                    medium = { stream.readUnsignedShort() },
-                     small = { stream.readUnsignedByte() })
-            val bytestring = ByteArray(length)
-            stream.read(bytestring)
-            String(bytestring)
-        }
+        stringsCache.getOrPut(pointer) { dereferenceStringUncached(pointer) }
+
+    fun dereferenceStringUncached(pointer: UInt): String {
+        val stream = stringsStream ?: fileStream
+        stream.seek(pointer.toLong())
+        val length =
+            flags.slcAction(
+                big = { stream.readInt() },
+                medium = { stream.readUnsignedShort() },
+                small = { stream.readUnsignedByte() })
+        val bytestring = ByteArray(length)
+        stream.read(bytestring)
+        return String(bytestring)
+    }
 
     fun dereferenceDocuments(pointer: UInt) =
         documentsCache.getOrPut(pointer) {
@@ -91,6 +93,34 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
             }
         }
 
+    fun getRaw(idx: UInt): WordLong {
+        if (idx > count) throw IndexOutOfBoundsException("Size: $count, index: $idx")
+        fileStream.seek((preambleSize + idx * flags.entrySize).toLong())
+        val str = flags.spcAction(
+               big = { fileStream.readInt() },
+            medium = { fileStream.readUnsignedShort() },
+             small = { fileStream.readUnsignedByte() }).toUInt()
+        val doc = flags.dicAction(
+               big = { fileStream.readInt() },
+            medium = { fileStream.readUnsignedShort() },
+             small = { fileStream.readUnsignedByte() }).toUInt()
+        return WordLong(str, doc)
+    }
+
+    fun getRawMulti(idx: UInt): WordLong {
+        if (idx > count) throw IndexOutOfBoundsException("Size: $count, index: $idx")
+        fileStream.seek((preambleSize + idx * flags.entrySize).toLong())
+        val str = flags.spcAction(
+            big = { fileStream.readInt() },
+            medium = { fileStream.readUnsignedShort() },
+            small = { fileStream.readUnsignedByte() }).toUInt()
+        val doc = flags.dpcAction(
+            big = { fileStream.readInt() },
+            medium = { fileStream.readUnsignedShort() },
+            small = { fileStream.readUnsignedByte() }).toUInt()
+        return WordLong(str, doc)
+    }
+
     /**
      * Get string, document id pair at index
      * @param idx: index at which entry should be located
@@ -101,16 +131,7 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
         if (flags.db) throw UnsupportedOperationException(
             "Cannot retrieve entry from file with DB flag set on. Use getMulti(idx: UInt) instead"
         )
-        if (idx > entries) throw IndexOutOfBoundsException("Size: $entries, index: $idx")
-        fileStream.seek((preambleSize + idx * flags.entrySize).toLong())
-        val doc = flags.dicAction(
-               big = { fileStream.readInt() },
-            medium = { fileStream.readUnsignedShort() },
-             small = { fileStream.readUnsignedByte() }).toUInt()
-        val strPtr = flags.spcAction(
-               big = { fileStream.readInt() },
-            medium = { fileStream.readUnsignedShort() },
-             small = { fileStream.readUnsignedByte() }).toUInt()
+        val (strPtr, doc) = getRaw(idx)
         return SPIMIEntry(dereferenceString(strPtr), DocumentID(doc.toInt()))
     }
 
@@ -124,17 +145,8 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
         if (!flags.db) throw UnsupportedOperationException(
             "Cannot retrieve multi-entry from file without DB flag set on. Use get(idx: UInt) instead"
         )
-        if (idx > entries) throw IndexOutOfBoundsException("Size: $entries, index: $idx")
-        fileStream.seek((preambleSize + idx * flags.entrySize).toLong())
-        val strPtr = flags.spcAction(
-               big = { fileStream.readInt() },
-            medium = { fileStream.readUnsignedShort() },
-             small = { fileStream.readUnsignedByte() }).toUInt()
-        val doc = flags.dpcAction(
-               big = { fileStream.readInt() },
-            medium = { fileStream.readUnsignedShort() },
-             small = { fileStream.readUnsignedByte() }).toUInt()
-        return SPIMIMultiEntry(dereferenceString(strPtr), dereferenceDocuments(doc))
+        val (strPtr, docPtr) = getRawMulti(idx)
+        return SPIMIMultiEntry(dereferenceString(strPtr), dereferenceDocuments(docPtr))
     }
 
     fun getMulti(idx: Int) = getMulti(idx.toUInt())
@@ -167,9 +179,15 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
     }
 
     override fun iterator(): Iterator<SPIMIEntry> = iterator {
-//     TODO: Read blocks of entries instead of one at the time
-        for (i in 0u until entries) {
+        // TODO: Make use of buffered reading
+        for (i in 0u until count) {
             yield(get(i))
+        }
+    }
+
+    val entries get() = iterator {
+        for (i in 0u until count) {
+            yield(getRaw(i))
         }
     }
 
@@ -192,9 +210,29 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
             }
         }
 
+
+    val stringsWithAddress
+        get() = iterator {
+            var pos = if (stringsStream != null) 0u else HEADER_SIZE
+            val stream = stringsStream ?: fileStream
+            while (pos < HEADER_SIZE + stringsBlockSize) {
+                stream.seek(pos.toLong())
+                val length = flags.slcAction(
+                    big = { stream.readInt() },
+                    medium = { stream.readUnsignedShort() },
+                    small = { stream.readUnsignedByte() }
+                ).toUInt()
+                val bytestring = ByteArray(length.toInt())
+                stream.read(bytestring)
+                yield(String(bytestring) to pos)
+                pos += flags.stringLengthSize
+                pos += length
+            }
+        }
+
     override fun toString() = "SPIMIFile(${file.toRelativeString(File("."))})"
 
-    fun binarySearch(word: String, fromIndex: UInt = 0u, toIndex: UInt = entries): Int {
+    fun binarySearch(word: String, fromIndex: UInt = 0u, toIndex: UInt = count): Int {
         if (!flags.se && !flags.db && !flags.ud)
             throw UnsupportedOperationException("Binary search is only possible on sorted unified multi-entry files")
         var lo = fromIndex
@@ -202,7 +240,6 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
         while (lo <= hi) {
             val mid = (lo + hi) / 2u
             val currentWord = getString(mid)
-//            val (currentWord) = getMulti(mid)
             val cmp = currentWord.compareTo(word)
             when {
                 cmp > 0 -> { hi = mid - 1u }
