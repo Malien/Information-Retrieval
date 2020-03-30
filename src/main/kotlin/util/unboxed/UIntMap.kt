@@ -162,7 +162,7 @@ class UIntMap(initialSize: Int = 20, private val loadFactor: Float = 0.6f): Iter
         array = ULongArray(newCapacity)
         size = if (hasFreeKey) 1 else 0
 
-        for (i in oldCapacity downTo 0) {
+        for (i in (oldCapacity-1) downTo 0) {
             val oldKey = (oldData[i] and KEY_MASK).toUInt()
             if (oldKey != FREE_KEY) set(oldKey, (oldData[i] shr 32).toUInt())
         }

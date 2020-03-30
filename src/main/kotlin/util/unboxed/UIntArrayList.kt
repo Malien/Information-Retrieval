@@ -48,6 +48,9 @@ class UIntArrayList(initialSize: Int = 10, private val growthFactor: Float = 1.5
         size = 0
     }
 
+    fun isEmpty() = size == 0
+    fun isNotEmpty() = size != 0
+
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (javaClass != other?.javaClass) return false

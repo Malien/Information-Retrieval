@@ -144,7 +144,7 @@ fun reduce(
         }
     }
 
-    val unifiedEntries = sequence<MappedEntry> {
+    val unifiedEntries = iterator<WordLong> {
         val iterators = files.mapArray { it.entries }
         val queue = PriorityQueue<MappedEntry>()
         for ((idx, iterator) in iterators.withIndex()) {
@@ -153,32 +153,31 @@ fun reduce(
         while (queue.isNotEmpty()) {
             val entry = queue.poll()
             val idx = entry.idx
-            yield(entry)
+            yield(WordLong(wordID = entry.wordID, docID = entry.docID))
             val iterator = iterators[idx]
             queue.pushEntry(from = iterator, idx = idx)
         }
-    }.constrainOnce()
+    }
 
     data class MappedMultiEntry(val wordID: UInt, val documents: UIntArray)
 
-    val compressedEntries = sequence<MappedMultiEntry> {
-        val documents = UIntArrayList()
-        var term: String? = null
+    val compressedEntries = iterator {
+        if (unifiedEntries.hasNext()) {
+            var (prevWordID, firstDocID) = unifiedEntries.next()
+            val documents = UIntArrayList()
+            documents.add(firstDocID)
 
-        for ((word, _, doc, wordID) in unifiedEntries) {
-            if (term == null) {
-                term = word
-                documents.add(doc)
-            } else {
-                if (term != word) {
-                    yield(MappedMultiEntry(wordID, documents.toArray()))
+            for ((wordID, docID) in unifiedEntries) {
+                if (wordID != prevWordID) {
+                    yield(MappedMultiEntry(prevWordID, documents.toArray()))
                     documents.clear()
-                    documents.add(doc)
-                    term = word
-                } else if (doc != documents.last()) documents.add(doc)
+                    documents.add(docID)
+                    prevWordID = wordID
+                } else if (docID != documents.last()) documents.add(docID)
             }
+            yield(MappedMultiEntry(prevWordID, documents.toArray()))
         }
-    }.constrainOnce()
+    }
 
     fun writeEntry(strPtr: UInt, docPtr: UInt, to: WriteBuffer) {
         flags.spcAction(

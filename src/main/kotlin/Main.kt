@@ -355,7 +355,10 @@ fun main(args: Array<String>) {
             val (fileList, mapTime) = measureReturnTimeMillis {
                 spimiFiles.toMutableList().flatMap { it.get() }.toTypedArray()
             }
-            if (verbose) println("Mapping done in $mapTime ms")
+            if (verbose) {
+                console.statusLine = ""
+                println("Mapping done in $mapTime ms")
+            }
 
             // Reduce step
             val (reduced, reduceTime) = measureReturnTimeMillis {

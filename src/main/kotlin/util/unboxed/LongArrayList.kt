@@ -59,6 +59,9 @@ class LongArrayList(initialSize: Int = 10, private val growthFactor: Float = 1.5
         size = 0
     }
 
+    fun isEmpty() = size == 0
+    fun isNotEmpty() = size != 0
+
     override fun hashCode(): Int {
         var result = arr.contentHashCode()
         result = 31 * result + size
