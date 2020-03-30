@@ -63,3 +63,18 @@ fun genDelimiters(processingThreads: Int): Array<String> {
         }
     }
 }
+
+const val BAR_LENGTH = 20
+const val GLOBAL_BAR_LENGTH = 40
+
+/**
+ * Measures time that block execution took, and
+ * returns a pair of return value of the block and time it took in milliseconds
+ * @param block block of code to be measured
+ * @return pair of return value and execution time in milliseconds
+ */
+inline fun <R> measureReturnTimeMillis(block: () -> R): Pair<R, Long> {
+    val start = System.currentTimeMillis()
+    val value = block()
+    return value to System.currentTimeMillis() - start
+}

@@ -21,19 +21,7 @@ val BufferedReader.tokenSequence
         .filter { it.isNotBlank() }
         .map { it.toLowerCase() }
 
-/**
- * Measures time that block execution took, and
- * returns a pair of return value of the block and time it took in milliseconds
- * @param block block of code to be measured
- * @return pair of return value and execution time in milliseconds
- */
-inline fun <R> measureReturnTimeMillis(block: () -> R): Pair<R, Long> {
-    val start = System.currentTimeMillis()
-    val value = block()
-    return value to System.currentTimeMillis() - start
-}
-
-data class ProcessingStatus(
+data class MappingStatus(
     val filesAssigned: Int,
     var filesMapped: Int = 0,
     var bytesMapped: Long = 0,
@@ -42,13 +30,10 @@ data class ProcessingStatus(
     var lineLength: Int = 0
 )
 
-const val BAR_LENGTH = 20
-const val GLOBAL_BAR_LENGTH = 40
-
-sealed class Report(val idx: Int)
-class MappedFile(idx: Int, val bytes: Long) : Report(idx)
-class MappingStageDone(idx: Int, val stage: Int) : Report(idx)
-class DoneMapping(idx: Int) : Report(idx)
+sealed class MappingReport(val idx: Int)
+class MappedFile(idx: Int, val bytes: Long) : MappingReport(idx)
+class MappingStageDone(idx: Int, val stage: Int) : MappingReport(idx)
+class DoneMapping(idx: Int) : MappingReport(idx)
 
 fun genSplits(files: List<File>, processingThreads: Int) = buildList<List<File>> {
     val splitSize = files.size.toDouble() / processingThreads
@@ -59,57 +44,55 @@ fun genSplits(files: List<File>, processingThreads: Int) = buildList<List<File>>
     }
 }
 
-fun mapperStatusLine(stat: ProcessingStatus, idx: Int): String {
+fun mapperStatusLine(stat: MappingStatus, idx: Int) = buildString {
     val percentDone = stat.filesMapped.toDouble() / stat.filesAssigned
     val barsFilled = (percentDone * BAR_LENGTH).toInt()
-    return buildString {
-        append("Mapper ")
-        append(idx + 1)
-        append(": [")
-        for (i in 0 until barsFilled)
-            append('#')
-        for (i in barsFilled until BAR_LENGTH)
-            append(' ')
-        append(']')
+
+    append("Mapper ")
+    append(idx + 1)
+    append(": [")
+    for (i in 0 until barsFilled)
+        append('#')
+    for (i in barsFilled until BAR_LENGTH)
         append(' ')
-        append((percentDone * 100).round(digits = 2))
-        append("% (")
-        append(stat.bytesMapped.megabytes)
-        append(" Mb) ")
-        if (stat.done) append("done")
-        for (i in 0 until stat.dotsCount)
-            append('.')
-        for (i in length until stat.lineLength)
-            append(' ')
-    }
+    append(']')
+    append(' ')
+    append((percentDone * 100).round(digits = 2))
+    append("% (")
+    append(stat.bytesMapped.megabytes)
+    append(" Mb) ")
+    if (stat.done) append("done")
+    for (i in 0 until stat.dotsCount)
+        append('.')
+    for (i in length until stat.lineLength)
+        append(' ')
 }
 
-fun globalStatusLine(stat: ProcessingStatus): String {
+fun globalMapperStatusLine(stat: MappingStatus) = buildString {
     val percentDone = stat.filesMapped.toDouble() / stat.filesAssigned
     val barsFilled = (percentDone * GLOBAL_BAR_LENGTH).toInt()
-    return buildString {
-        append(stat.filesMapped)
-        append('/')
-        append(stat.filesAssigned)
+
+    append(stat.filesMapped)
+    append('/')
+    append(stat.filesAssigned)
+    append(' ')
+    append('[')
+    for (i in 0 until barsFilled)
+        append('#')
+    for (i in barsFilled until GLOBAL_BAR_LENGTH)
         append(' ')
-        append('[')
-        for (i in 0 until barsFilled)
-            append('#')
-        for (i in barsFilled until GLOBAL_BAR_LENGTH)
-            append(' ')
-        append(']')
+    append(']')
+    append(' ')
+    append((percentDone * 100).round(digits = 2))
+    append("% (")
+    append(stat.bytesMapped.megabytes)
+    append(" Mb)")
+    for (i in length until stat.lineLength)
         append(' ')
-        append((percentDone * 100).round(digits = 2))
-        append("% (")
-        append(stat.bytesMapped.megabytes)
-        append(" Mb)")
-        for (i in length until stat.lineLength)
-            append(' ')
-    }
 }
 
 @ExperimentalUnsignedTypes
-fun verboseMultimap(
+fun verboseMultiMap(
     files: List<File>,
     to: File,
     documents: DocumentRegistry,
@@ -121,7 +104,7 @@ fun verboseMultimap(
     // Splits files between processing threads
     val splits = genSplits(files, processingThreads)
 
-    val queue = ArrayBlockingQueue<Report>(100_000)
+    val queue = ArrayBlockingQueue<MappingReport>(100_000)
 
     // Mapping
     val spimiFiles = splits.mapIndexed { idx, split ->
@@ -163,12 +146,12 @@ fun verboseMultimap(
         }
     }
 
-    val stats = splits.mapArray { ProcessingStatus(filesAssigned = it.size) }
+    val stats = splits.mapArray { MappingStatus(filesAssigned = it.size) }
     for ((idx, stat) in stats.withIndex()) {
         println(mapperStatusLine(stat, idx))
     }
-    val globalStat = ProcessingStatus(filesAssigned = files.size)
-    print(globalStatusLine(globalStat))
+    val globalStat = MappingStatus(filesAssigned = files.size)
+    print(globalMapperStatusLine(globalStat))
 
     val (fileList, mapTime) = measureReturnTimeMillis {
         var mappersDone = 0
@@ -195,7 +178,7 @@ fun verboseMultimap(
             val mapperLine = mapperStatusLine(stat, report.idx)
             stat.lineLength = mapperLine.length
 
-            val globalLine = globalStatusLine(globalStat)
+            val globalLine = globalMapperStatusLine(globalStat)
             globalStat.lineLength = globalStat.lineLength
             val lineDiff = stats.size - report.idx
             val updateString = "\u001b[${lineDiff}A\r$mapperLine\u001b[${lineDiff}B\r$globalLine"
@@ -211,7 +194,7 @@ fun verboseMultimap(
 }
 
 @ExperimentalUnsignedTypes
-fun multimap(
+fun multiMap(
     files: List<File>,
     to: File,
     documents: DocumentRegistry,

@@ -57,22 +57,6 @@ fun <T> toJSONFile(obj: T, path: String, serializer: KSerializer<T>) {
     out.close()
 }
 
-/**
- * Transpose matrix(?) of values
- * @param input Array of Arrays of T
- * @return iterator of iterators on values in rotated order
- */
-fun <T> rotate(input: Array<Array<T>>) = iterator {
-    val segments = input.asSequence().map { it.size }.max() ?: 0
-    for (i in 0 until segments) {
-        yield(iterator {
-            for (arr in input) {
-                if (i < arr.size) yield(arr[i])
-            }
-        })
-    }
-}
-
 val runtime: Runtime = Runtime.getRuntime()
 
 //TODO: add execute param
@@ -89,8 +73,7 @@ val boolArguments = hashSetOf(
     "disable-double-word",
     "disable-position",
     "map-reduce",
-    "r",
-    "pretty-print"
+    "r"
 )
 val numberArguments: HashMap<String, Double?> = hashMapOf(
     "p" to runtime.availableProcessors().toDouble()
@@ -220,7 +203,7 @@ fun main(args: Array<String>) {
             val delimiters = genDelimiters(processingThreads)
 
             if (verbose) println("\nMapping:")
-            val mappingFunction = if (verbose) ::verboseMultimap else ::multimap
+            val mappingFunction = if (verbose) ::verboseMultiMap else ::multiMap
             val spimiFiles = mappingFunction(
                 files,
                 dictDirFile,
@@ -231,24 +214,11 @@ fun main(args: Array<String>) {
 
             if (verbose) println("\nReducing:")
             // Reduce step
-            val reduced = rotate(spimiFiles).asSequence().mapIndexed { idx, file ->
-                async {
-                    fun pathname(filename: String) =
-                        if (idx < delimiters.size) "$dictPath/${delimiters[idx]}/$filename"
-                        else "$dictPath/.final/$filename"
+            val reduceFunction = if (verbose) ::verboseMultiReduce else ::multiReduce
+            val reduced = reduceFunction(spimiFiles, dictDirFile, delimiters)
 
-                    val arr = file.asSequence().toMutableList().toTypedArray()
-                    reduce(
-                        arr,
-                        to = pathname("dictionary.spimi"),
-                        externalDocuments = pathname("documents.sdoc")
-                    )
-                }
-            }.toList().map { it.get() }
-
-            // Remove temporary mapping files
             for (file in spimiFiles.flatten()) file.delete()
-            IndexingResult(SPIMIMultiFile(reduced, delimiters), documents)
+            IndexingResult(reduced, documents)
         }
 
         // Save registry to the disk

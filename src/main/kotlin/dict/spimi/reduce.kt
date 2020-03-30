@@ -12,10 +12,6 @@ import java.util.*
 import kotlin.collections.HashMap
 
 @ExperimentalUnsignedTypes
-fun reduce(files: Array<SPIMIFile>, to: String, externalStrings: String? = null, externalDocuments: String? = null) =
-    reduce(files, File(to), externalStrings, externalDocuments)
-
-@ExperimentalUnsignedTypes
 fun WriteBuffer.dumpString(string: String, flags: SPIMIFlags) {
     flags.slcAction(
            big = { add(string.length) },
@@ -26,28 +22,192 @@ fun WriteBuffer.dumpString(string: String, flags: SPIMIFlags) {
 }
 
 @ExperimentalUnsignedTypes
+fun reduceFlags(flags: Sequence<SPIMIFlags>, externalStrings: String?, externalDocuments: String?) = SPIMIFlags().apply {
+    db = true
+    se = true
+    ud = true
+    es = externalStrings != null
+    ed = externalDocuments != null
+    if (flags.any { !it.se }) throw UnsupportedOperationException("Cannot reduce entries on unsorted files")
+
+    slc = flags.all { it.slc }
+    sluc = flags.all { it.sluc }
+
+    dic = flags.all { it.dic }
+    diuc = flags.all { it.diuc }
+
+    ss = flags.all { it.ss }
+}
+
+@ExperimentalUnsignedTypes
+fun useStringsWriteBuffer(path: String, writeBuffer: WriteBuffer): Pair<WriteBuffer, UInt> {
+    val stringsFile = File(path)
+    if (!stringsFile.exists()) {
+        stringsFile.parentFile.mkdirs()
+        stringsFile.createNewFile()
+    }
+    val bytestring = path.toUtf8Bytes()
+    val stringsBlockSize = bytestring.size.toUInt()
+    writeBuffer.add(bytestring)
+    val stringsOut = FileOutputStream(stringsFile)
+    return WriteBuffer(size = 65536, onWrite = stringsOut::write, onClose = stringsOut::close) to stringsBlockSize
+}
+
+@ExperimentalUnsignedTypes
+typealias Mappings = Array<UIntMap>
+
+@ExperimentalUnsignedTypes
+fun reduceSortedStrings(files: Array<SPIMIFile>, writeBuffer: WriteBuffer, flags: SPIMIFlags): Mappings {
+    val mappings = Array(files.size) { UIntMap(files.size * 1000) }
+    val iterators = files.mapArray { it.stringsWithAddress }
+    val queue = PriorityQueue(
+        Comparator.comparing<Pair<Pair<String, UInt>, Int>, String> { it.first.first }
+    )
+    for ((idx, iterator) in iterators.withIndex()) {
+        if (iterator.hasNext()) queue.add(iterator.next() to idx)
+    }
+    var prevString: String? = null
+    var prevAddress: UInt = 0u
+    while (queue.isNotEmpty()) {
+        val (addressedString, idx) = queue.poll()
+        val (string, address) = addressedString
+        if (string == prevString) {
+            mappings[idx][address] = prevAddress
+            prevString = string
+        } else {
+            prevAddress = writeBuffer.bytesWritten.toUInt()
+            prevString = string
+            writeBuffer.dumpString(string, flags)
+            mappings[idx][address] = prevAddress
+        }
+        val iterator = iterators[idx]
+        if (iterator.hasNext()) queue.add(iterator.next() to idx)
+    }
+    return mappings
+}
+
+@ExperimentalUnsignedTypes
+fun reduceStrings(files: Array<SPIMIFile>, writeBuffer: WriteBuffer, flags: SPIMIFlags): Mappings {
+    val mappings = Array(files.size) { UIntMap(files.size * 1000) }
+    val strings = HashMap<String, UInt>()
+    for ((idx, file) in files.withIndex()) {
+        for ((string, address) in file.stringsWithAddress) {
+            val alreadyWrittenAddress = strings[string]
+            if (alreadyWrittenAddress != null) {
+                mappings[idx][address] = alreadyWrittenAddress
+            } else {
+                val writtenAddress = writeBuffer.bytesWritten.toUInt()
+                mappings[idx][address] = writtenAddress
+                strings[string] = writtenAddress
+                writeBuffer.dumpString(string, flags)
+            }
+        }
+    }
+    return mappings
+}
+
+@ExperimentalUnsignedTypes
+data class MappedEntry(val word: String, val idx: Int, val docID: UInt, val wordID: UInt): Comparable<MappedEntry> {
+    override fun compareTo(other: MappedEntry): Int {
+        var cmp = word.compareTo(other.word)
+        if (cmp == 0) cmp = docID.compareTo(other.docID)
+        return cmp
+    }
+}
+
+@ExperimentalUnsignedTypes
+fun PriorityQueue<MappedEntry>.pushEntry(from: Iterator<WordLong>,
+                                         mappings: Mappings,
+                                         files: Array<SPIMIFile>,
+                                         idx: Int
+) {
+    if (from.hasNext()) {
+        val (wordID, docID) = from.next()
+        val word = files[idx].dereferenceStringUncached(wordID)
+        val mappedWordID = mappings[idx][wordID]
+        add(MappedEntry(word, idx, docID, mappedWordID))
+    }
+}
+
+@ExperimentalUnsignedTypes
+fun unifyEntries(files: Array<SPIMIFile>, mappings: Mappings) = iterator {
+    val iterators = files.mapArray { it.entries }
+    val queue = PriorityQueue<MappedEntry>()
+    for ((idx, iterator) in iterators.withIndex()) {
+        queue.pushEntry(iterator, mappings, files, idx)
+    }
+    while (queue.isNotEmpty()) {
+        val entry = queue.poll()
+        val idx = entry.idx
+        yield(WordLong(wordID = entry.wordID, docID = entry.docID))
+        val iterator = iterators[idx]
+        queue.pushEntry(iterator, mappings, files, idx)
+    }
+}
+
+@ExperimentalUnsignedTypes
+data class MappedMultiEntry(val wordID: UInt, val documents: UIntArray)
+
+@ExperimentalUnsignedTypes
+fun compressEntries(unifiedEntries: Iterator<WordLong>) = iterator {
+    if (unifiedEntries.hasNext()) {
+        var (prevWordID, firstDocID) = unifiedEntries.next()
+        val documents = UIntArrayList()
+        documents.add(firstDocID)
+
+        for ((wordID, docID) in unifiedEntries) {
+            if (wordID != prevWordID) {
+                yield(MappedMultiEntry(prevWordID, documents.toArray()))
+                documents.clear()
+                documents.add(docID)
+                prevWordID = wordID
+            } else if (docID != documents.last()) documents.add(docID)
+        }
+        yield(MappedMultiEntry(prevWordID, documents.toArray()))
+    }
+}
+
+
+@ExperimentalUnsignedTypes
+fun writeEntry(strPtr: UInt, docPtr: UInt, to: WriteBuffer, flags: SPIMIFlags) {
+    flags.spcAction(
+        big = { to.add(strPtr.toInt()) },
+        medium = { to.add(strPtr.toShort()) },
+        small = { to.add(strPtr.toByte()) }
+    )
+    flags.dpcAction(
+        big = { to.add(docPtr.toInt()) },
+        medium = { to.add(docPtr.toShort()) },
+        small = { to.add(docPtr.toByte()) }
+    )
+}
+
+@ExperimentalUnsignedTypes
+fun UIntArray.writeDocumentIDs(to: WriteBuffer, flags: SPIMIFlags) {
+    flags.dscAction(
+        big = { to.add(size) },
+        medium = { to.add(size.toShort()) },
+        small = { to.add(size.toByte()) }
+    )
+    for (id in this) {
+        flags.dicAction(
+            big = { to.add(id.toInt()) },
+            medium = { to.add(id.toShort()) },
+            small = { to.add(id.toByte()) }
+        )
+    }
+}
+
+@ExperimentalUnsignedTypes
 fun reduce(
     files: Array<SPIMIFile>,
     to: File,
     externalStrings: String? = null,
-    externalDocuments: String? = null
+    externalDocuments: String? = null,
+    reporter: ReducerReporter? = null,
+    reportRate: Long = 1000
 ): SPIMIFile {
-    val flags = SPIMIFlags()
-
-    flags.db = true
-    flags.se = true
-    flags.ud = true
-    flags.es = externalStrings != null
-    flags.ed = externalDocuments != null
-    if (files.any { !it.flags.se }) throw UnsupportedOperationException("Cannot reduce entries on unsorted files")
-
-    flags.slc = files.all { it.flags.slc }
-    flags.sluc = files.all { it.flags.sluc }
-
-    flags.dic = files.all { it.flags.dic }
-    flags.diuc = files.all { it.flags.diuc }
-
-    flags.ss = files.all { it.flags.ss }
+    val flags = reduceFlags(files.asSequence().map { it.flags }, externalStrings, externalDocuments)
 
     if (!to.exists()) {
         to.parentFile.mkdirs()
@@ -62,63 +222,14 @@ fun reduce(
     writeBuffer.skip(12)
 
     val stringsWriteBuffer = if (externalStrings != null) {
-        val stringsFile = File(externalStrings)
-        if (!stringsFile.exists()) {
-            stringsFile.parentFile.mkdirs()
-            stringsFile.createNewFile()
-        }
-        val bytestring = externalStrings.toUtf8Bytes()
-        stringsBlockSize = bytestring.size.toUInt()
-        writeBuffer.add(bytestring)
-        val stringsOut = FileOutputStream(stringsFile)
-        WriteBuffer(size = 65536, onWrite = stringsOut::write, onClose = stringsOut::close)
+        val (buffer, blockSize) = useStringsWriteBuffer(externalStrings, writeBuffer)
+        stringsBlockSize = blockSize
+        buffer
     } else writeBuffer
 
-    val mappings = if (flags.ss) {
-        val mappings = Array(files.size) { UIntMap(files.size * 1000) }
-        val iterators = files.mapArray { it.stringsWithAddress }
-        val queue = PriorityQueue(
-            Comparator.comparing<Pair<Pair<String, UInt>, Int>, String> { it.first.first }
-        )
-        for ((idx, iterator) in iterators.withIndex()) {
-            if (iterator.hasNext()) queue.add(iterator.next() to idx)
-        }
-        var prevString: String? = null
-        var prevAddress: UInt = 0u
-        while (queue.isNotEmpty()) {
-            val (addressedString, idx) = queue.poll()
-            val (string, address) = addressedString
-            if (string == prevString) {
-                mappings[idx][address] = prevAddress
-                prevString = string
-            } else {
-                prevAddress = stringsWriteBuffer.bytesWritten.toUInt()
-                prevString = string
-                stringsWriteBuffer.dumpString(string, flags)
-                mappings[idx][address] = prevAddress
-            }
-            val iterator = iterators[idx]
-            if (iterator.hasNext()) queue.add(iterator.next() to idx)
-        }
-        mappings
-    } else {
-        val mappings = Array(files.size) { UIntMap(files.size * 1000) }
-        val strings = HashMap<String, UInt>()
-        for ((idx, file) in files.withIndex()) {
-            for ((string, address) in file.stringsWithAddress) {
-                val alreadyWrittenAddress = strings[string]
-                if (alreadyWrittenAddress != null) {
-                    mappings[idx][address] = alreadyWrittenAddress
-                } else {
-                    val writtenAddress = stringsWriteBuffer.bytesWritten.toUInt()
-                    mappings[idx][address] = writtenAddress
-                    strings[string] = writtenAddress
-                    stringsWriteBuffer.dumpString(string, flags)
-                }
-            }
-        }
-        mappings
-    }
+    val mappings =
+        if (flags.ss) reduceSortedStrings(files, stringsWriteBuffer, flags)
+        else reduceStrings(files, stringsWriteBuffer, flags)
 
     if (stringsWriteBuffer === writeBuffer) {
         stringsBlockSize = writeBuffer.bytesWritten.toUInt() - HEADER_SIZE
@@ -127,85 +238,11 @@ fun reduce(
     flags.spc = writeBuffer.bytesWritten.toULong() < UShort.MAX_VALUE
     flags.spuc = writeBuffer.bytesWritten.toULong() < UByte.MAX_VALUE
 
-    data class MappedEntry(val word: String, val idx: Int, val docID: UInt, val wordID: UInt): Comparable<MappedEntry> {
-        override fun compareTo(other: MappedEntry): Int {
-            var cmp = word.compareTo(other.word)
-            if (cmp == 0) cmp = docID.compareTo(other.docID)
-            return cmp
-        }
-    }
+    reporter?.reportHeaderReduction()
 
-    fun PriorityQueue<MappedEntry>.pushEntry(from: Iterator<WordLong>, idx: Int) {
-        if (from.hasNext()) {
-            val (wordID, docID) = from.next()
-            val word = files[idx].dereferenceStringUncached(wordID)
-            val mappedWordID = mappings[idx][wordID]
-            add(MappedEntry(word, idx, docID, mappedWordID))
-        }
-    }
+    val unifiedEntries = unifyEntries(files, mappings)
 
-    val unifiedEntries = iterator<WordLong> {
-        val iterators = files.mapArray { it.entries }
-        val queue = PriorityQueue<MappedEntry>()
-        for ((idx, iterator) in iterators.withIndex()) {
-            queue.pushEntry(from = iterator,  idx = idx)
-        }
-        while (queue.isNotEmpty()) {
-            val entry = queue.poll()
-            val idx = entry.idx
-            yield(WordLong(wordID = entry.wordID, docID = entry.docID))
-            val iterator = iterators[idx]
-            queue.pushEntry(from = iterator, idx = idx)
-        }
-    }
-
-    data class MappedMultiEntry(val wordID: UInt, val documents: UIntArray)
-
-    val compressedEntries = iterator {
-        if (unifiedEntries.hasNext()) {
-            var (prevWordID, firstDocID) = unifiedEntries.next()
-            val documents = UIntArrayList()
-            documents.add(firstDocID)
-
-            for ((wordID, docID) in unifiedEntries) {
-                if (wordID != prevWordID) {
-                    yield(MappedMultiEntry(prevWordID, documents.toArray()))
-                    documents.clear()
-                    documents.add(docID)
-                    prevWordID = wordID
-                } else if (docID != documents.last()) documents.add(docID)
-            }
-            yield(MappedMultiEntry(prevWordID, documents.toArray()))
-        }
-    }
-
-    fun writeEntry(strPtr: UInt, docPtr: UInt, to: WriteBuffer) {
-        flags.spcAction(
-               big = { to.add(strPtr.toInt()) },
-            medium = { to.add(strPtr.toShort()) },
-             small = { to.add(strPtr.toByte()) }
-        )
-        flags.dpcAction(
-               big = { to.add(docPtr.toInt()) },
-            medium = { to.add(docPtr.toShort()) },
-             small = { to.add(docPtr.toByte()) }
-        )
-    }
-
-    fun UIntArray.writeDocumentIDs(to: WriteBuffer) {
-        flags.dscAction(
-               big = { to.add(size) },
-            medium = { to.add(size.toShort()) },
-             small = { to.add(size.toByte()) }
-        )
-        for (id in this) {
-            flags.dicAction(
-                   big = { to.add(id.toInt()) },
-                medium = { to.add(id.toShort()) },
-                 small = { to.add(id.toByte()) }
-            )
-        }
-    }
+    val compressedEntries = compressEntries(unifiedEntries)
 
     if (externalDocuments != null) {
         // In this single-pass mode sizes of docID collections cannot be pre-evaluated,
@@ -226,11 +263,18 @@ fun reduce(
         val documentsOut = FileOutputStream(documentsFile)
         val documentsWriteBuffer =
             WriteBuffer(size = 65536, onWrite = documentsOut::write, onClose = documentsOut::close)
+        var entriesReduced = 0L
         for ((strPtr, documentIDs) in compressedEntries) {
             val docPtr = documentsWriteBuffer.bytesWritten.toUInt()
-            writeEntry(strPtr, docPtr, to = writeBuffer)
-            documentIDs.writeDocumentIDs(to = documentsWriteBuffer)
+            writeEntry(strPtr, docPtr, to = writeBuffer, flags = flags)
+            documentIDs.writeDocumentIDs(to = documentsWriteBuffer, flags = flags)
+            entriesReduced += documentIDs.size
+            if (entriesReduced >= reportRate) {
+                reporter?.reportEntriesReduction(entriesReduced)
+                entriesReduced = 0
+            }
         }
+        reporter?.reportEntriesReduction(entriesReduced)
         documentsWriteBuffer.close()
     } else {
         // Still can't evaluate sizes of docID collections, but while we are noting positions,
@@ -243,7 +287,7 @@ fun reduce(
         for ((strPtr, documentIDs) in compressedEntries) {
             stringPositions.add(strPtr)
             documentPositions.add(writeBuffer.bytesWritten.toUInt())
-            documentIDs.writeDocumentIDs(to = writeBuffer)
+            documentIDs.writeDocumentIDs(to = writeBuffer, flags = flags)
         }
 
         documentsBlockSize = writeBuffer.bytesWritten.toUInt() - HEADER_SIZE - stringsBlockSize
@@ -252,7 +296,7 @@ fun reduce(
         flags.dpuc = writeBuffer.bytesWritten.toULong() < UByte.MAX_VALUE
 
         for ((strPtr, docPtr) in documentPositions.zip(stringPositions)) {
-            writeEntry(strPtr.toUInt(), docPtr.toUInt(), to = writeBuffer)
+            writeEntry(strPtr.toUInt(), docPtr.toUInt(), to = writeBuffer, flags = flags)
         }
     }
 
@@ -263,6 +307,8 @@ fun reduce(
     writeBuffer.add(stringsBlockSize.toInt())
     writeBuffer.add(documentsBlockSize.toInt())
     writeBuffer.close()
+
+    reporter?.reportDone()
 
     return SPIMIFile(to)
 }

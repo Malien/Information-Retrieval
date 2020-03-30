@@ -1,12 +1,14 @@
-TODO: Dumb and straight forward version of Quicksort with use of reified types and inline comparators
-TODO: java.util's DualPivotQuicksort with reified types and inline comparators
+✓: Dumb and straight forward version of Quicksort with use of reified types and inline comparators
+✓: java.util's DualPivotQuicksort with reified types and inline comparators
 TODO: Cache with invalidation based on access frequency
 TODO: Async buffered file writes
 TODO: Read buffer
 ✓: Reducer
 TODO: Documentation
-TODO: Parallel reducers
+✓: Parallel reducers
 TODO: Buffered string iterator
 TODO: Dynamic indexing
 TODO: Do not open so many file descriptors!
 TODO: Reduction in batches
+TODO: String stats in the SPIMI header
+TODO: More detailed header reduction status
