@@ -1,4 +1,7 @@
-import dict.*
+import dict.Dictionary
+import dict.DocumentRegistry
+import dict.Documents
+import dict.JokerDictType
 import dict.spimi.*
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
@@ -11,40 +14,8 @@ import java.io.FileReader
 import java.io.FileWriter
 import java.nio.file.Files
 import java.nio.file.Paths
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
-import kotlin.math.pow
-import kotlin.math.roundToInt
 import kotlin.streams.asSequence
 import kotlin.system.measureTimeMillis
-
-/**
- * Rounds number to the specified decimal place after dot
- * @param digits digits to be left after dot
- * @return rounded number
- */
-fun Double.round(digits: Int = 0) = (10.0.pow(digits) * this).roundToInt() / 10.0.pow(digits)
-
-/**
- * Converts to a printable-ish representation of value in megabytes (if value specifies size in bytes)
- */
-val Long.megabytes get() = (this / 1024 / 1024.0).round(2)
-
-/**
- * Retrieves the sequence of files in the directory with optionally provided extension name
- * @param path path to a directory
- * @param extension optional. Extension of files to be included in the sequence
- * @return sequence of files
- */
-fun getFiles(path: String, extension: String? = null): Sequence<File> {
-    val directory = File(path)
-    if (!directory.exists() && !directory.isDirectory) return emptySequence()
-    val files = directory.list { dir, name ->
-        val file = File(dir, name)
-        file.exists() && file.isFile && (extension == null || file.extension == extension)
-    } ?: emptyArray()
-    return files.asSequence().map { File(directory, it) }
-}
 
 /**
  * Retrieves the sequence of files from directory tree recursively
@@ -53,18 +24,6 @@ fun getFiles(path: String, extension: String? = null): Sequence<File> {
  */
 fun getFilesRecursively(path: String): Sequence<File> =
     Files.walk(Paths.get(path)).filter { Files.isRegularFile(it) }.map { it.toFile() }.asSequence()
-
-/**
- * Measures time that block execution took, and
- * returns a pair of return value of the block and time it took in milliseconds
- * @param block block of code to be measured
- * @return pair of return value and execution time in milliseconds
- */
-inline fun <R> measureReturnTimeMillis(block: () -> R): Pair<R, Long> {
-    val start = System.currentTimeMillis()
-    val value = block()
-    return value to System.currentTimeMillis() - start
-}
 
 /**
  * Deserialize object from a JSON file
@@ -113,16 +72,6 @@ fun <T> rotate(input: Array<Array<T>>) = iterator {
         })
     }
 }
-
-/**
- * Retrieves and parses tokens from the file. And constructs sequence of tokens
- * @return Sequence of lexical tokens
- */
-val BufferedReader.tokenSequence
-    get() = this.lineSequence()
-        .flatMap { it.split(Regex("\\W+")).asSequence() }
-        .filter  { it.isNotBlank() }
-        .map     { it.toLowerCase() }
 
 val runtime: Runtime = Runtime.getRuntime()
 
@@ -178,7 +127,6 @@ fun main(args: Array<String>) {
     val saveLocation = parsed.strings["o"]
     val processingThreads = if (sequential) 1 else parsed.numbers["p"]!!.toInt()
     val recursive = "r" in parsed.booleans
-    val prettyPrint = "pretty-print" in parsed.booleans
 
     /**
      * Starts an interactive REPL (Read Eval Print Loop) session to evaluate user specified queries.
@@ -225,8 +173,6 @@ fun main(args: Array<String>) {
         }
     }
 
-    val console = if (prettyPrint) FancyConsole(System.out) else PlainConsole(System.out)
-
     // List of files to index
     val filesSequence = parsed.unspecified.asSequence()
         .map { File(it) }
@@ -253,11 +199,12 @@ fun main(args: Array<String>) {
             if (doubleWord) println("Double-word dict is disabled to support map-reduce indexing")
             if (positioned) println("Positioned dict is disabled to support map-reduce indexing") // TODO
             if (jokerType != null) println("Joker is disabled to support map-reduce indexing")
+            // TODO: Not both
         }
 
-        data class IndexingResult(val file: SPIMIDict, val documents: DocumentRegistry, val timeTook: Long = 0)
+        data class IndexingResult(val file: SPIMIDict, val documents: DocumentRegistry)
 
-        val (dict, documents, timeTook) = if (from != null) {
+        val (dict, documents) = if (from != null) {
             // Loading dict from disk
             if (files.isNotEmpty() && verbose) println("Specified dict load location. Indexing won't be done")
             val manifest = fromJSONFile("$from/manifest.json", Manifest.serializer())
@@ -270,118 +217,38 @@ fun main(args: Array<String>) {
             if (!dictDirFile.exists()) dictDirFile.mkdirs()
             val documents = DocumentRegistry()
 
-            // Splits files between processing threads
-            val splits = sequence {
-                val splitSize = files.size.toDouble() / processingThreads
-                for (splitno in 0 until processingThreads) {
-                    val start = (splitno * splitSize).toInt()
-                    val end = ((splitno + 1) * splitSize).toInt()
-                    yield(files.slice(start until end))
-                }
-            }
+            val delimiters = genDelimiters(processingThreads)
 
-            val filesMapped = AtomicInteger(0)
-            val bytesMapped = AtomicLong(0)
-            val pastBytesMapped = AtomicLong(0)
-            val prevTimeStamp = AtomicLong(System.currentTimeMillis())
+            if (verbose) println("\nMapping:")
+            val mappingFunction = if (verbose) ::verboseMultimap else ::multimap
+            val spimiFiles = mappingFunction(
+                files,
+                dictDirFile,
+                documents,
+                processingThreads,
+                delimiters
+            )
 
-            val splitPoints = "0abcdefghijklmnopqrstuvwxyz"
-            val delimiterLength = 4
-            val fraction = 1.0 / processingThreads
-            val splitFraction = 1.0 / splitPoints.length
-
-            val delimiters = Array(processingThreads - 1) {
-                buildString {
-                    var position = (it + 1) * fraction
-                    repeat(times = delimiterLength) {
-                        val stop = position / splitFraction
-                        val idx = stop.toInt()
-                        if (position < splitFraction) return@repeat
-                        append(splitPoints[idx])
-                        position = stop - idx
-                    }
-                }
-            }
-
-            // Mapping
-            val spimiFiles = splits.mapIndexed { idx, split ->
-                async { // Launches separate thread of execution which returns a value
-                    val mapper = SPIMIMapper()
-                    val list = ArrayList<Array<SPIMIFile>>()
-                    for (file in split) {
-                        val id: DocumentID
-                        // Register document in centralized dictionary
-                        synchronized(documents) {
-                            id = documents.register(file.path)
-                        }
-                        val br = BufferedReader(FileReader(file))
-                        br.tokenSequence.forEach {
-                            val hasMoreSpace = mapper.add(it, id)
-                            if (!hasMoreSpace) {
-                                if (verbose) console.println("Mapper #$idx: done mapping chunk of $ENTRIES_COUNT elements")
-                                mapper.unify()
-                                if (verbose) console.println("Mapper #$idx: unified chunk down to ${mapper.size}")
-                                val dumpFile = mapper.dumpRanges(dictPath, delimiters)
-                                if (verbose) console.println("Mapper #$idx: dumped chunks")
-                                list.add(dumpFile)
-                                mapper.clear()
-                            }
-                        }
-                        br.close()
-                        val currentlyMappedFiles = filesMapped.incrementAndGet()
-                        val currentlyMappedBytes = bytesMapped.addAndGet(file.length())
-                        if (verbose && currentlyMappedFiles % 50 == 0) {
-                            val percentage = ((currentlyMappedFiles.toDouble() / files.size) * 100).round(digits = 2)
-                            val currentTime = System.currentTimeMillis()
-                            val timeDelta = currentTime - prevTimeStamp.getAndSet(currentTime)
-                            val byteDelta = currentlyMappedBytes - pastBytesMapped.getAndSet(currentlyMappedBytes)
-                            val indexingSpeed = (byteDelta.megabytes / (timeDelta) * 1_000_000.0).round(digits = 2)
-                            console.statusLine =
-                                "Mapped $currentlyMappedFiles files out of ${files.size} ($percentage%)." +
-                                        "Indexed ${currentlyMappedBytes.megabytes}Mb ($indexingSpeed Mb/s)"
-                        }
-                    }
-                    if (verbose) console.println("Mapper #$idx: final mapping done")
-                    mapper.unify()
-                    if (verbose) console.println("Mapper #$idx: final unification done")
-                    val file = mapper.dumpRanges(dictPath, delimiters)
-                    if (verbose) console.println("Mapper #$idx: dumped final chunks")
-                    list.add(file)
-                    list
-                }
-            }.constrainOnce()
-
-            // This part actually begins evaluation of mapper sequence
-            val (fileList, mapTime) = measureReturnTimeMillis {
-                spimiFiles.toMutableList().flatMap { it.get() }.toTypedArray()
-            }
-            if (verbose) {
-                console.statusLine = ""
-                println("Mapping done in $mapTime ms")
-            }
-
+            if (verbose) println("\nReducing:")
             // Reduce step
-            val (reduced, reduceTime) = measureReturnTimeMillis {
-                rotate(fileList).asSequence().mapIndexed { idx, file ->
-                    async {
-                        fun pathname(filename: String) =
-                            if (idx < delimiters.size) "$dictPath/${delimiters[idx]}/$filename"
-                            else "$dictPath/.final/$filename"
+            val reduced = rotate(spimiFiles).asSequence().mapIndexed { idx, file ->
+                async {
+                    fun pathname(filename: String) =
+                        if (idx < delimiters.size) "$dictPath/${delimiters[idx]}/$filename"
+                        else "$dictPath/.final/$filename"
 
-                        val arr = file.asSequence().toMutableList().toTypedArray()
-                        reduce(
-                            arr,
-                            to = pathname("dictionary.spimi"),
-                            externalDocuments = pathname("documents.sdoc")
-                        )
-                    }
-                }.toList().map { it.get() }
-            }
-            if (verbose) println("Reduction done in $reduceTime ms")
+                    val arr = file.asSequence().toMutableList().toTypedArray()
+                    reduce(
+                        arr,
+                        to = pathname("dictionary.spimi"),
+                        externalDocuments = pathname("documents.sdoc")
+                    )
+                }
+            }.toList().map { it.get() }
 
             // Remove temporary mapping files
-            for (file in fileList.flatten()) file.delete()
-            IndexingResult(SPIMIMultiFile(reduced, delimiters), documents, mapTime + reduceTime)
+            for (file in spimiFiles.flatten()) file.delete()
+            IndexingResult(SPIMIMultiFile(reduced, delimiters), documents)
         }
 
         // Save registry to the disk
@@ -398,7 +265,6 @@ fun main(args: Array<String>) {
             val mbs = size.megabytes
             println(
                 "Indexed $count files ($mbs MB total). " +
-                        "Took $timeTook ms to index. " +
                         "Unique words: $unique. " +
                         "Memory usage: $memoryUsage MB."
             )

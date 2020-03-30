@@ -1,8 +1,8 @@
 package dict.spimi
 
 import kotlinx.serialization.toUtf8Bytes
-import parser.mapArray
 import util.WriteBuffer
+import util.mapArray
 import util.unboxed.UIntArrayList
 import util.unboxed.UIntMap
 import java.io.File

@@ -1,7 +1,6 @@
 package dict.spimi
 
 import dict.DocumentID
-import kotlinx.serialization.Serializable
 import util.combine
 import util.firstUInt
 import util.secondUInt
@@ -45,5 +44,22 @@ inline class WordLong(val value: ULong): Comparable<WordLong> {
     override fun compareTo(other: WordLong) = value.compareTo(other.value)
 }
 
-@Serializable
-data class Range(val lowerLimit: String? = null, val dictionary: String)
+fun genDelimiters(processingThreads: Int): Array<String> {
+    val splitPoints = "0abcdefghijklmnopqrstuvwxyz"
+    val delimiterLength = 4
+    val fraction = 1.0 / processingThreads
+    val splitFraction = 1.0 / splitPoints.length
+
+    return Array(processingThreads - 1) {
+        buildString {
+            var position = (it + 1) * fraction
+            repeat(times = delimiterLength) {
+                val stop = position / splitFraction
+                val idx = stop.toInt()
+                if (position < splitFraction) return@repeat
+                append(splitPoints[idx])
+                position = stop - idx
+            }
+        }
+    }
+}

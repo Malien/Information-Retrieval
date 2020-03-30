@@ -3,6 +3,9 @@ package dict.spimi
 import kotlinx.serialization.Serializable
 
 @Serializable
+data class Range(val lowerLimit: String? = null, val dictionary: String)
+
+@Serializable
 data class Manifest(val rootDictionary: String? = null, val ranges: List<Range>? = null) {
     init {
         if (rootDictionary != null && ranges != null)
