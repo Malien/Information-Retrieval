@@ -137,7 +137,7 @@ fun verboseMultiReduce(
                 to = dictionaryPath,
                 externalDocuments = externalDocuments,
                 reporter = ReducerReporter(queue, idx),
-                reportRate = stats[idx].entriesAssigned / 1000
+                reportRate = (stats[idx].entriesAssigned / 1000).coerceAtLeast(100)
             )
         }
 

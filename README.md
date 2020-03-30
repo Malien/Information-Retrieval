@@ -19,7 +19,7 @@ If directory is specified, program will index all the files within
 ### Huh, options you say. What are they, you might ask. Here you go, bud:
 - `i` or `interactive` will launch REPL mode, aka. Read Print Eval Loop where you can write your queries and get result inline.
 - `stat` will print collection and runtime info upon finishing indexing.
-- `v` or `verbose` will print a lot more stuff to the console. Recommended to set it unless you wan't only pure results.
+- `v` or `verbose` will print a lot more stuff to the console. Recommended to set it unless you wan't only pure results. (EDIT: Now it's really pretty. In fact it is so pretty that I've removed `pretty-print` option cause it was not pretty enough)
 - `s` or `sequential` will index things sequentially, instead of in parallel. Parallel mode is not implemented, so it will only index things sequentially by now.
 - `n` will evaluate boolean negations. _Only in map-reduce mode_
 - `disable-single-word` will disable indexing stuff inside of single-word index table.
@@ -32,7 +32,6 @@ If directory is specified, program will index all the files within
 - `map-reduce` uses new highly scalable map-reduce indexer. Is completely incompatible with non map-reduce variant
 - `p [count]` how many processing threads are used for indexing. _Only in map-reduce mode_
 - `r` if directory is specified, will index recursively all of the sub-directories
-- `pretty-print` enables a bit prettier printing to the console in verbose mode
 - `joker [types]` specifies what kind of indexing structure for non-complete word queries is used. Possible types are:
   - `prefix-tree`
   - `trigram`
@@ -44,10 +43,12 @@ It relies on SPIMI file structure described in the `src/dict/spimi/README.md`.
 
 Files structure of indexed collections may be structured like this:
 - `<name>.sppckg` -- complete package
-  - `dictionary.spimi` -- reduced dictionary
+  - `manifest.json` -- file where layout of dictionaries is described
+  - `dictionary.spimi` -- reduced single-file dictionary
   - `strings.sstr` -- external strings
   - `documents.sdoc` -- external document sequences
   - `<uuid>.spimim` -- chunks of mapping data
+  - `<4 characters>` -- directory which contains mapping or reduced dictionaries with the respect of their lexicographical range
 
 ### Queries you say...
 Yep. And the are kinda structured, but still not SQL. Queries are just words or phrases you want to find with some additional features, such as:
