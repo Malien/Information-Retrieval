@@ -12,3 +12,4 @@ TODO: Do not open so many file descriptors!
 TODO: Reduction in batches
 TODO: String stats in the SPIMI header
 TODO: More detailed header reduction status
+TODO: Add cluster support

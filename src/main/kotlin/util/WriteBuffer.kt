@@ -3,6 +3,8 @@ package util
 import java.io.Closeable
 
 const val WRITE_BLOCK_SIZE = 4096
+@ExperimentalUnsignedTypes
+const val vbMask = 0b1111111
 
 /**
  * Buffer that automatically fetches data from stream and buffers it.
@@ -45,6 +47,23 @@ class WriteBuffer(
 
     fun add(byte: Byte) = dump(1) {
         buffer[ready] = byte
+    }
+
+    @ExperimentalUnsignedTypes
+    fun encodeVariable(int: Int): Int {
+        var res = int
+        var iterations = 0
+        while (res > 127) {
+            dump(1) {
+                buffer[ready] = (res and vbMask).toByte()
+                res = res shr 7
+                iterations++
+            }
+        }
+        dump(1) {
+            buffer[ready] = (res + 128).toByte()
+        }
+        return iterations + 1
     }
 
     fun skip(length: Int) = dump(length) { }

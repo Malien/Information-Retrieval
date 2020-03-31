@@ -51,8 +51,12 @@ Followed by 4 bytes that signify the length of documents block.
 - 14 - **ES**   - Whether strings block is within another file
 - 15 - **ED**   - Whether document block is within another file
 
+**Document ID list compression**
+- 16 - **DBI**  - Whether id's are encoded as intervals between documents, instead of documents themselves
+- 17 - **DVBE** - Whether document block uses variable-byte-encoding
+
 **Reserved**
-- bits from 15 to 31 are reserved for future use
+- bits from 18 to 31 are reserved for future use
 
 TODO: DocumentID -> DocumentInfo lookup table
 

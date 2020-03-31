@@ -26,8 +26,8 @@ inline class IntPair(val value: ULong) {
     val second get() = value.secondUInt
     val pair get() = split(value)
 
-    fun component1() = first
-    fun component2() = second
+    operator fun component1() = first
+    operator fun component2() = second
 
     constructor(first: UInt, second: UInt): this(combine(first, second))
 

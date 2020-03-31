@@ -5,6 +5,7 @@ import dict.Documents
 import dict.emptyDocuments
 import util.decodeInt
 import util.decodeUShort
+import util.decodeVariableByteEncodedInt
 import java.io.File
 import java.io.RandomAccessFile
 
@@ -60,37 +61,72 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
     fun dereferenceStringUncached(pointer: UInt): String {
         val stream = stringsStream ?: fileStream
         stream.seek(pointer.toLong())
-        val length =
-            flags.slcAction(
-                big = { stream.readInt() },
-                medium = { stream.readUnsignedShort() },
-                small = { stream.readUnsignedByte() })
+        val length = flags.slcAction(
+               big = { stream.readInt() },
+            medium = { stream.readUnsignedShort() },
+             small = { stream.readUnsignedByte() }
+        )
         val bytestring = ByteArray(length)
         stream.read(bytestring)
         return String(bytestring)
     }
 
-    fun dereferenceDocuments(pointer: UInt) =
-        documentsCache.getOrPut(pointer) {
-            val stream = documentsStream ?: fileStream
-            stream.seek(pointer.toLong())
-            val length =
-                flags.dscAction(
-                       big = { stream.readInt() },
-                    medium = { stream.readUnsignedShort() },
-                     small = { stream.readUnsignedByte() }).toUInt()
-            val bytedocs = ByteArray((length * flags.documentIDSize).toInt())
-            stream.read(bytedocs)
-            val docIdSize = flags.documentIDSize.toInt()
-            Array(length.toInt()) {
-                val idx = it * docIdSize
-                DocumentID(
-                    flags.dicAction(
-                           big = { bytedocs.decodeInt(idx) },
-                        medium = { bytedocs.decodeUShort(idx).toInt() },
-                         small = { bytedocs[idx].toUByte().toInt() })
+    private inline fun ByteArray.forEachVariableEncodedInt(from: Int = 0, to: Int = size, action: (Int) -> Unit) {
+        var bytesRead = from
+        while (bytesRead < to) {
+            val (element, elementLength) = decodeVariableByteEncodedInt(bytesRead)
+            bytesRead += elementLength.toInt()
+            action(element.toInt())
+        }
+    }
+
+    private inline fun ByteArray.forEachDocumentID(
+        flags: SPIMIFlags,
+        from: Int = 0,
+        to: Int = size,
+        action: (Int) -> Unit
+    ) {
+        val docSize = flags.documentIDSize.toInt()
+        for (i in from until to step docSize) {
+            action(
+                flags.dicAction(
+                       big = { decodeInt(i) },
+                    medium = { decodeUShort(i).toInt() },
+                     small = { this[i].toUByte().toInt() }
                 )
-            }
+            )
+        }
+    }
+
+    fun dereferenceDocuments(begin: UInt, end: UInt) =
+        documentsCache.getOrPut(begin) {
+            val stream = documentsStream ?: fileStream
+            stream.seek(begin.toLong())
+            val length = end - begin
+            val bytedocs = ByteArray(length.toInt())
+            stream.read(bytedocs)
+
+            if (flags.dbi) {
+                if (flags.dvbe) buildList<DocumentID> {
+                    var doc = 0
+                    bytedocs.forEachVariableEncodedInt {
+                        doc += it
+                        add(DocumentID(doc))
+                    }
+                } else buildList<DocumentID> {
+                    var doc = 0
+                    bytedocs.forEachDocumentID(flags) {
+                        doc += it
+                        add(DocumentID(doc))
+                    }
+                }
+            } else {
+                if (flags.dvbe) buildList<DocumentID> {
+                    bytedocs.forEachVariableEncodedInt { add(DocumentID(it)) }
+                } else buildList<DocumentID> {
+                    bytedocs.forEachDocumentID(flags) { add(DocumentID(it)) }
+                }
+            }.toTypedArray()
         }
 
     fun getRaw(idx: UInt): WordLong {
@@ -107,18 +143,34 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
         return WordLong(str, doc)
     }
 
-    fun getRawMulti(idx: UInt): WordLong {
+    data class RawMultiResult(val strPtr: UInt, val docBegin: UInt, val docEnd: UInt)
+
+    fun getRawMulti(idx: UInt): RawMultiResult {
         if (idx > count) throw IndexOutOfBoundsException("Size: $count, index: $idx")
         fileStream.seek((preambleSize + idx * flags.entrySize).toLong())
         val str = flags.spcAction(
-            big = { fileStream.readInt() },
+               big = { fileStream.readInt() },
             medium = { fileStream.readUnsignedShort() },
-            small = { fileStream.readUnsignedByte() }).toUInt()
-        val doc = flags.dpcAction(
-            big = { fileStream.readInt() },
+             small = { fileStream.readUnsignedByte() }).toUInt()
+        val docBegin = flags.dpcAction(
+               big = { fileStream.readInt() },
             medium = { fileStream.readUnsignedShort() },
-            small = { fileStream.readUnsignedByte() }).toUInt()
-        return WordLong(str, doc)
+             small = { fileStream.readUnsignedByte() }).toUInt()
+
+        val docEnd = if (idx == count - 1u) {
+            documentsStream?.length()?.toUInt() ?: preambleSize
+        } else {
+            flags.spcAction(
+                   big = { fileStream.readInt() },
+                medium = { fileStream.readShort() },
+                 small = { fileStream.readByte() })
+            flags.dpcAction(
+                   big = { fileStream.readInt() },
+                medium = { fileStream.readUnsignedShort() },
+                 small = { fileStream.readUnsignedByte() }).toUInt()
+        }
+
+        return RawMultiResult(str, docBegin, docEnd)
     }
 
     /**
@@ -145,8 +197,8 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
         if (!flags.db) throw UnsupportedOperationException(
             "Cannot retrieve multi-entry from file without DB flag set on. Use get(idx: UInt) instead"
         )
-        val (strPtr, docPtr) = getRawMulti(idx)
-        return SPIMIMultiEntry(dereferenceString(strPtr), dereferenceDocuments(docPtr))
+        val (strPtr, docBegin, docEnd) = getRawMulti(idx)
+        return SPIMIMultiEntry(dereferenceString(strPtr), dereferenceDocuments(docBegin, docEnd))
     }
 
     fun getMulti(idx: Int) = getMulti(idx.toUInt())
@@ -190,26 +242,6 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
             yield(getRaw(i))
         }
     }
-
-    val strings
-        get() = iterator {
-            var pos = if (stringsStream != null) 0u else HEADER_SIZE
-            val stream = stringsStream ?: fileStream
-            while (pos < HEADER_SIZE + stringsBlockSize) {
-                stream.seek(pos.toLong())
-                val length = flags.slcAction(
-                       big = { stream.readInt() },
-                    medium = { stream.readUnsignedShort() },
-                     small = { stream.readUnsignedByte() }
-                ).toUInt()
-                val bytestring = ByteArray(length.toInt())
-                stream.read(bytestring)
-                pos += flags.stringLengthSize
-                pos += length
-                yield(String(bytestring))
-            }
-        }
-
 
     val stringsWithAddress
         get() = iterator {

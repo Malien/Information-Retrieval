@@ -171,30 +171,53 @@ fun compressEntries(unifiedEntries: Iterator<WordLong>) = iterator {
 @ExperimentalUnsignedTypes
 fun writeEntry(strPtr: UInt, docPtr: UInt, to: WriteBuffer, flags: SPIMIFlags) {
     flags.spcAction(
-        big = { to.add(strPtr.toInt()) },
+           big = { to.add(strPtr.toInt()) },
         medium = { to.add(strPtr.toShort()) },
-        small = { to.add(strPtr.toByte()) }
+         small = { to.add(strPtr.toByte()) }
     )
     flags.dpcAction(
-        big = { to.add(docPtr.toInt()) },
+           big = { to.add(docPtr.toInt()) },
         medium = { to.add(docPtr.toShort()) },
-        small = { to.add(docPtr.toByte()) }
+         small = { to.add(docPtr.toByte()) }
     )
 }
 
 @ExperimentalUnsignedTypes
 fun UIntArray.writeDocumentIDs(to: WriteBuffer, flags: SPIMIFlags) {
-    flags.dscAction(
-        big = { to.add(size) },
-        medium = { to.add(size.toShort()) },
-        small = { to.add(size.toByte()) }
-    )
-    for (id in this) {
-        flags.dicAction(
-            big = { to.add(id.toInt()) },
-            medium = { to.add(id.toShort()) },
-            small = { to.add(id.toByte()) }
-        )
+    if (flags.dbi) {
+        if (flags.dvbe) {
+            var prev = 0u
+            for (id in this) {
+                val interval = (id - prev).toInt()
+                to.encodeVariable(interval)
+                prev = id
+            }
+        } else {
+            var prev = 0u
+            for (id in this) {
+                val interval = id - prev
+                flags.dicAction(
+                       big = { to.add(interval.toInt()) },
+                    medium = { to.add(interval.toShort()) },
+                     small = { to.add(interval.toByte()) }
+                )
+                prev = id
+            }
+        }
+    } else {
+        if (flags.dvbe) {
+            for (id in this) {
+                to.encodeVariable(id.toInt())
+            }
+        } else {
+            for (id in this) {
+                flags.dicAction(
+                       big = { to.add(id.toInt()) },
+                    medium = { to.add(id.toShort()) },
+                     small = { to.add(id.toByte()) }
+                )
+            }
+        }
     }
 }
 
@@ -205,9 +228,13 @@ fun reduce(
     externalStrings: String? = null,
     externalDocuments: String? = null,
     reporter: ReducerReporter? = null,
-    reportRate: Long = 1000
+    reportRate: Long = 1000,
+    intervalEncoding: Boolean = true,
+    variableByteEncoding: Boolean = true
 ): SPIMIFile {
     val flags = reduceFlags(files.asSequence().map { it.flags }, externalStrings, externalDocuments)
+    flags.dbi = intervalEncoding
+    flags.dvbe = variableByteEncoding
 
     if (!to.exists()) {
         to.parentFile.mkdirs()

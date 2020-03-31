@@ -103,6 +103,14 @@ data class SPIMIFlags(var flags: UInt = 0u) {
         get() = get(15)
         set(value) = set(15, value)
 
+    var dbi
+        get() = get(16)
+        set(value) = set(16, value)
+
+    var dvbe
+        get() = get(17)
+        set(value) = set(17, value)
+
     override fun toString() = buildString {
         append("SPIMIFlags(")
         append(sequence {
@@ -122,6 +130,8 @@ data class SPIMIFlags(var flags: UInt = 0u) {
             if (ss) yield("SS")
             if (es) yield("ES")
             if (ed) yield("ED")
+            if (dbi) yield("DBI")
+            if (dvbe) yield("DVBE")
         }.joinToString(separator = ", "))
         append(')')
     }
