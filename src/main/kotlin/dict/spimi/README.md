@@ -55,6 +55,8 @@ Followed by 4 bytes that signify the length of documents block.
 - 16 - **DBI**  - Whether id's are encoded as intervals between documents, instead of documents themselves
 - 17 - **DVBE** - Whether document block uses variable-byte-encoding
 
+TODO: Flag for specifying zones and their presence
+
 **Reserved**
 - bits from 18 to 31 are reserved for future use
 

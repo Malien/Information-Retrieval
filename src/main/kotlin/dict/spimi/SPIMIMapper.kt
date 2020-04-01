@@ -79,7 +79,6 @@ class SPIMIMapper {
         entries.inPlaceMap(0 until size) {
             val (wordID, docID, flags) = WordLong(it)
             WordLong(pointerMappings[wordID.toInt()].toUInt(), docID, flags).value
-//            combine(pointerMappings[wordID.toInt()].toUInt(), docID)
         }
         sortedStrings = true
     }
@@ -104,10 +103,10 @@ class SPIMIMapper {
                 } else {
                     val wordAndDoc = sorted and mask
                     if (prev and mask == wordAndDoc) {
-                        prev = prev or wordAndDoc
+                        prev = prev or sorted
                     } else {
-                        prev = sorted
                         yield(prev)
+                        prev = sorted
                     }
                 }
             }

@@ -1,5 +1,6 @@
 package dict.spimi
 
+import dict.BookZone
 import dict.Document
 import dict.DocumentID
 import dict.DocumentRegistry
@@ -21,10 +22,12 @@ val BufferedReader.tokenSequence
     get() = this.lineSequence().tokenSequence
 
 val Sequence<String>.tokenSequence
-    get() = this
-        .flatMap { it.split(Regex("\\W+")).asSequence() }
+    get() = this.flatMap { it.tokenSequence }
+
+val String.tokenSequence
+    get() = split(Regex("\\W+")).asSequence()
         .filter { it.isNotBlank() }
-        .map { it.toLowerCase() }
+        .map    { it.toLowerCase() }
 
 data class MappingStatus(
     val filesAssigned: Int,
@@ -96,7 +99,11 @@ fun globalMapperStatusLine(stat: MappingStatus) = buildString {
         append(' ')
 }
 
-data class DocumentTokenizerResult(val id: DocumentID, val br: BufferedReader, val seq: Sequence<String>)
+@ExperimentalUnsignedTypes
+data class ZonedString(val string: String, val zone: BookZone)
+
+@ExperimentalUnsignedTypes
+data class DocumentTokenizerResult(val id: DocumentID, val br: BufferedReader, val seq: Sequence<ZonedString>)
 
 @ExperimentalUnsignedTypes
 fun Document.tokenize(documents: DocumentRegistry): DocumentTokenizerResult {
@@ -107,10 +114,14 @@ fun Document.tokenize(documents: DocumentRegistry): DocumentTokenizerResult {
     }
     return if (this.file.extension != "fb2") {
         val br = BufferedReader(FileReader(file))
-        DocumentTokenizerResult(id, br, br.tokenSequence)
+        DocumentTokenizerResult(id, br, br.tokenSequence.map { ZonedString(it, BookZone.ofBody) })
     } else {
         val br = FileReader(file).buffered(bufferSize = 65536)
-        DocumentTokenizerResult(id, br, parseBook(br, book = this).map { it.contents }.tokenSequence)
+        val seq = parseBook(br, book = this)
+            .flatMap { (contents, flags) ->
+                contents.tokenSequence.map { ZonedString(it, flags) }
+            }
+        DocumentTokenizerResult(id, br, seq)
     }
 }
 
@@ -136,8 +147,8 @@ fun verboseMultiMap(
             val list = ArrayList<Array<SPIMIFile>>()
             for (file in split) {
                 val (id, br, seq) = file.tokenize(documents)
-                seq.forEach {
-                    val hasMoreSpace = mapper.add(it, id)
+                seq.forEach { (word, flags) ->
+                    val hasMoreSpace = mapper.add(word, id, flags)
                     if (!hasMoreSpace) {
                         queue.put(MappingStageDone(idx, 1))
                         mapper.sort()
@@ -231,8 +242,8 @@ fun multiMap(
             val list = ArrayList<Array<SPIMIFile>>()
             for (file in split) {
                 val (id, br, seq) = file.tokenize(documents)
-                seq.forEach {
-                    val hasMoreSpace = mapper.add(it, id)
+                seq.forEach { (word, flags) ->
+                    val hasMoreSpace = mapper.add(word, id, flags)
                     if (!hasMoreSpace) {
                         mapper.unify()
                         val dumpFile = mapper.dumpRanges(to, delimiters)
