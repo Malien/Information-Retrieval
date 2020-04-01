@@ -1,4 +1,4 @@
-package util
+package util.serialization
 
 import kotlinx.serialization.*
 import kotlinx.serialization.internal.ArrayClassDesc

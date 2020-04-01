@@ -3,9 +3,9 @@ package dict.spimi
 import dict.DocumentID
 import dict.Documents
 import dict.emptyDocuments
-import util.decodeInt
-import util.decodeUShort
-import util.decodeVariableByteEncodedInt
+import util.kotlinx.decodeInt
+import util.kotlinx.decodeUShort
+import util.kotlinx.decodeVariableByteEncodedInt
 import java.io.File
 import java.io.RandomAccessFile
 

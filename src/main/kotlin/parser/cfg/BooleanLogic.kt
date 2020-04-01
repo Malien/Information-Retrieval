@@ -1,4 +1,4 @@
-package parser
+package parser.cfg
 
 import java.util.*
 
@@ -22,36 +22,61 @@ inline class BooleanLogicParseTree(val tree: ParseTree)
 val grammar: BooleanLogicGrammar by lazy {
     BooleanLogicGrammar(
         Grammar(V).add(
-            V, Replacement(T, Vx)
+            V,
+            Replacement(T, Vx)
         ).add(
             Vx, arrayListOf(
                 Replacement(EPS),
-                Replacement(or, T)
+                Replacement(
+                    or,
+                    T
+                )
             )
         ).add(
-            T, Replacement(O, Tx)
+            T,
+            Replacement(O, Tx)
         ).add(
             Tx, arrayListOf(
                 Replacement(EPS),
-                Replacement(and, O)
+                Replacement(
+                    and,
+                    O
+                )
             )
         ).add(
             O, arrayListOf(
                 Replacement(id),
-                Replacement(not, N),
-                Replacement(obracket, V, cbracket)
+                Replacement(
+                    not,
+                    N
+                ),
+                Replacement(
+                    obracket,
+                    V,
+                    cbracket
+                )
             )
         ).add(
             N, arrayListOf(
                 Replacement(id),
-                Replacement(obracket, V, cbracket)
+                Replacement(
+                    obracket,
+                    V,
+                    cbracket
+                )
             )
         )
     )
 }
 
 fun parse(token: Queue<Terminal>): BooleanLogicParseTree =
-    BooleanLogicParseTree(parse(token, grammar.grammar.table, grammar.grammar.start))
+    BooleanLogicParseTree(
+        parse(
+            token,
+            grammar.grammar.table,
+            grammar.grammar.start
+        )
+    )
 
 class EvalContext<T>(
     private val fromID: (String) -> T,
@@ -146,6 +171,9 @@ fun tokenize(str: String): Queue<Terminal> =
 fun main() {
     val tokens = tokenize("A & !(B | C)")
     val tree = parse(tokens)
-    val context = EvalContext({ it }, { a, b -> "($a & $b)" }, { a, b -> "($a | $b)" }, { "(! $it)" })
+    val context = EvalContext({ it },
+        { a, b -> "($a & $b)" },
+        { a, b -> "($a | $b)" },
+        { "(! $it)" })
     println(context(tree))
 }

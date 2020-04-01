@@ -1,20 +1,21 @@
 package dict
 
 import kotlinx.serialization.Serializable
-import util.TreeMapArraySerializer
+import util.serialization.TreeMapArraySerializer
 import java.util.*
 
 @Serializable
+@ExperimentalUnsignedTypes
 class DocumentRegistry: Iterable<DocumentID> {
 
     var documentCount = 0
         private set
 
     @Serializable(with = TreeMapArraySerializer::class)
-    private val documents: TreeMap<DocumentID, String> = TreeMap()
+    private val documents: TreeMap<DocumentID, Document> = TreeMap()
 
-    fun register(path: String): DocumentID =
-        DocumentID(documentCount++).also { documents[it] = path }
+    fun register(document: Document): DocumentID =
+        DocumentID(documentCount++).also { documents[it] = document }
 
     fun deregister(id: DocumentID) =
         if (id in documents) {
@@ -22,7 +23,9 @@ class DocumentRegistry: Iterable<DocumentID> {
             true
         } else false
 
-    fun path(id: DocumentID) = documents[id]
+    fun path(id: DocumentID) = documents[id]?.file?.path
+
+    fun document(at: DocumentID) = documents[at]
 
     override fun iterator() = documents.keys.iterator()
 

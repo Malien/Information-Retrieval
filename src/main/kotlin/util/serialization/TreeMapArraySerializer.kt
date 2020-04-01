@@ -1,4 +1,4 @@
-package util
+package util.serialization
 
 import kotlinx.serialization.*
 import kotlinx.serialization.internal.ArrayClassDesc
@@ -30,7 +30,9 @@ class TreeMapArraySerializer<K:Comparable<K>, V>(
     override fun serialize(encoder: Encoder, obj: TreeMap<K, V>) {
         val collection = encoder.beginCollection(descriptor, obj.size)
         for ((idx, entry) in obj.iterator().withIndex()) {
-            collection.encodeSerializableElement(descriptor, idx, containerSerializer, Container(entry.key, entry.value))
+            collection.encodeSerializableElement(descriptor, idx, containerSerializer,
+                Container(entry.key, entry.value)
+            )
         }
         collection.endStructure(descriptor)
     }

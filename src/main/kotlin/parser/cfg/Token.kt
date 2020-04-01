@@ -1,4 +1,4 @@
-package parser
+package parser.cfg
 
 sealed class Token(val value: String) {
     override fun equals(other: Any?): Boolean {

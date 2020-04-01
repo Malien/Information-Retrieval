@@ -1,5 +1,6 @@
-package util
+package util.kotlinx
 
+import util.IntPair
 import java.math.BigInteger
 
 @ExperimentalUnsignedTypes
@@ -52,7 +53,10 @@ fun ByteArray.decodeVariableByteEncodedInt(at: Int): IntPair {
         shift += 7
         currentByte = this[current++].toUByte()
     }
-    return IntPair(res or ((currentByte.toUInt() and 0b1111111u) shl shift), (current - at).toUInt())
+    return IntPair(
+        res or ((currentByte.toUInt() and 0b1111111u) shl shift),
+        (current - at).toUInt()
+    )
 }
 
 @ExperimentalUnsignedTypes

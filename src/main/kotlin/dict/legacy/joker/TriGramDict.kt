@@ -1,7 +1,11 @@
-package dict.joker
+package dict.legacy.joker
 
 import kotlinx.serialization.Serializable
-import util.*
+import util.KeySet
+import util.cross
+import util.keySet
+import util.serialization.TreeMapArraySerializer
+import util.serialization.TreeSetSerializer
 import java.util.*
 
 @Serializable

@@ -1,6 +1,6 @@
-package parser
+package parser.cfg
 
-import util.mapArray
+import util.kotlinx.mapArray
 import java.util.*
 
 inline class ParseTree(val root: ParseTreeNode<NonTerminal>)

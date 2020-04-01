@@ -1,4 +1,4 @@
-package parser
+package parser.cfg
 
 class SyntaxError(message: String) : Error(message)
 

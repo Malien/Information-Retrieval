@@ -1,4 +1,4 @@
-package dict.joker
+package dict.legacy.joker
 
 interface JokerDict {
     fun add(word: String)

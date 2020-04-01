@@ -1,4 +1,4 @@
-package parser
+package parser.cfg
 
 inline class Replacement(val values: Array<Token> = emptyArray()) {
     constructor(token: Token, vararg tokens: Token) : this(arrayOf(token, *tokens))

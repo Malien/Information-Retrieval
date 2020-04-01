@@ -1,19 +1,23 @@
-package dict
+package dict.legacy
 
-import dict.joker.PrefixDict
-import dict.joker.RelocationDict
-import dict.joker.TriGramDict
+import dict.DocumentID
+import dict.DocumentRegistry
+import dict.Documents
+import dict.emptyDocuments
+import dict.legacy.joker.PrefixDict
+import dict.legacy.joker.RelocationDict
+import dict.legacy.joker.TriGramDict
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
-import util.*
+import util.cross
+import util.keySet
+import util.serialization.PriorityQueueSerializer
+import util.serialization.TreeMapArraySerializer
+import util.unite
 import java.util.*
 import kotlin.collections.component1
 import kotlin.collections.component2
 import kotlin.collections.set
-
-typealias Documents = KeySet<DocumentID>
-
-fun emptyDocuments() = Documents(iterator {})
 
 data class SpacedWord(val word: String, val spaced: Int)
 

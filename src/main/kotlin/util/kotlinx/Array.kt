@@ -1,4 +1,4 @@
-package util
+package util.kotlinx
 
 inline fun <T, reified U> Array<T>.mapArray(transform: (value: T) -> U) =
     Array(size) { transform(this[it]) }

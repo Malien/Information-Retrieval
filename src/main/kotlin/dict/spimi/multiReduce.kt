@@ -2,7 +2,7 @@ package dict.spimi
 
 import util.Future
 import util.async
-import util.round
+import util.kotlinx.round
 import java.io.File
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.BlockingQueue

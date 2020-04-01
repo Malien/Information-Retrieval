@@ -1,13 +1,16 @@
-import dict.Dictionary
+import dict.Document
 import dict.DocumentRegistry
 import dict.Documents
-import dict.JokerDictType
+import dict.legacy.Dictionary
+import dict.legacy.JokerDictType
 import dict.spimi.*
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonConfiguration
-import parser.*
+import parser.cfg.*
 import util.*
+import util.kotlinx.getFiles
+import util.kotlinx.megabytes
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileReader
@@ -170,10 +173,10 @@ fun main(args: Array<String>) {
         .map { it.path }
         .flatMap { if (recursive) getFilesRecursively(it) else getFiles(it) }
     val fromFiles = filesSequence.filter { it.isFile }
-    val files = (fromDirs + fromFiles).toList()
+    val files = (fromDirs + fromFiles).map { Document(it) }.toList()
 
     val size = files.asSequence()
-        .map { it.length() }
+        .map { it.file.length() }
         .sum()
 
     if (mapReduce) {
@@ -182,7 +185,8 @@ fun main(args: Array<String>) {
             if (doubleWord) println("Double-word dict is disabled to support map-reduce indexing")
             if (positioned) println("Positioned dict is disabled to support map-reduce indexing") // TODO
             if (jokerType != null) println("Joker is disabled to support map-reduce indexing")
-            // TODO: Not both
+            if (files.isNotEmpty() && from != null)
+                println("Cannot extend already existing dictionary. Loading $from without changes")
         }
 
         data class IndexingResult(val file: SPIMIDict, val documents: DocumentRegistry)
@@ -299,9 +303,9 @@ fun main(args: Array<String>) {
         // Indexing
         val syncTime = measureTimeMillis {
             for (file in files) {
-                val id = dict.documents.register(file.path)
+                val id = dict.documents.register(file)
                 if (verbose) println("${id.id} -> $file")
-                val br = BufferedReader(FileReader(file))
+                val br = BufferedReader(FileReader(file.file))
                 var prev: String? = null
                 br.lineSequence()
                     .flatMap { it.split(Regex("\\W+")).asSequence() }

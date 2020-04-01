@@ -1,11 +1,13 @@
 package dict.spimi
 
+import dict.Document
 import dict.DocumentID
 import dict.DocumentRegistry
+import parser.fb2.parseBook
 import util.async
-import util.mapArray
-import util.megabytes
-import util.round
+import util.kotlinx.mapArray
+import util.kotlinx.megabytes
+import util.kotlinx.round
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileReader
@@ -16,7 +18,10 @@ import java.util.concurrent.ArrayBlockingQueue
  * @return Sequence of lexical tokens
  */
 val BufferedReader.tokenSequence
-    get() = this.lineSequence()
+    get() = this.lineSequence().tokenSequence
+
+val Sequence<String>.tokenSequence
+    get() = this
         .flatMap { it.split(Regex("\\W+")).asSequence() }
         .filter { it.isNotBlank() }
         .map { it.toLowerCase() }
@@ -35,7 +40,7 @@ class MappedFile(idx: Int, val bytes: Long) : MappingReport(idx)
 class MappingStageDone(idx: Int, val stage: Int) : MappingReport(idx)
 class DoneMapping(idx: Int) : MappingReport(idx)
 
-fun genSplits(files: List<File>, processingThreads: Int) = buildList<List<File>> {
+fun <T> genSplits(files: List<T>, processingThreads: Int) = buildList<List<T>> {
     val splitSize = files.size.toDouble() / processingThreads
     for (splitno in 0 until processingThreads) {
         val start = (splitno * splitSize).toInt()
@@ -91,9 +96,27 @@ fun globalMapperStatusLine(stat: MappingStatus) = buildString {
         append(' ')
 }
 
+data class DocumentTokenizerResult(val id: DocumentID, val br: BufferedReader, val seq: Sequence<String>)
+
+@ExperimentalUnsignedTypes
+fun Document.tokenize(documents: DocumentRegistry): DocumentTokenizerResult {
+    val id: DocumentID
+    // Register document in centralized dictionary
+    synchronized(documents) {
+        id = documents.register(this)
+    }
+    return if (this.file.extension != "fb2") {
+        val br = BufferedReader(FileReader(file))
+        DocumentTokenizerResult(id, br, br.tokenSequence)
+    } else {
+        val br = FileReader(file).buffered(bufferSize = 65536)
+        DocumentTokenizerResult(id, br, parseBook(br, book = this).map { it.contents }.tokenSequence)
+    }
+}
+
 @ExperimentalUnsignedTypes
 fun verboseMultiMap(
-    files: List<File>,
+    files: List<Document>,
     to: File,
     documents: DocumentRegistry,
     processingThreads: Int = Runtime.getRuntime().availableProcessors(),
@@ -112,13 +135,8 @@ fun verboseMultiMap(
             val mapper = SPIMIMapper()
             val list = ArrayList<Array<SPIMIFile>>()
             for (file in split) {
-                val id: DocumentID
-                // Register document in centralized dictionary
-                synchronized(documents) {
-                    id = documents.register(file.path)
-                }
-                val br = BufferedReader(FileReader(file))
-                br.tokenSequence.forEach {
+                val (id, br, seq) = file.tokenize(documents)
+                seq.forEach {
                     val hasMoreSpace = mapper.add(it, id)
                     if (!hasMoreSpace) {
                         queue.put(MappingStageDone(idx, 1))
@@ -133,7 +151,7 @@ fun verboseMultiMap(
                     }
                 }
                 br.close()
-                queue.put(MappedFile(idx, file.length()))
+                queue.put(MappedFile(idx, file.file.length()))
             }
             queue.put(MappingStageDone(idx, 1))
             mapper.unify()
@@ -195,7 +213,7 @@ fun verboseMultiMap(
 
 @ExperimentalUnsignedTypes
 fun multiMap(
-    files: List<File>,
+    files: List<Document>,
     to: File,
     documents: DocumentRegistry,
     processingThreads: Int = Runtime.getRuntime().availableProcessors(),
@@ -212,13 +230,8 @@ fun multiMap(
             val mapper = SPIMIMapper()
             val list = ArrayList<Array<SPIMIFile>>()
             for (file in split) {
-                val id: DocumentID
-                // Register document in centralized dictionary
-                synchronized(documents) {
-                    id = documents.register(file.path)
-                }
-                val br = BufferedReader(FileReader(file))
-                br.tokenSequence.forEach {
+                val (id, br, seq) = file.tokenize(documents)
+                seq.forEach {
                     val hasMoreSpace = mapper.add(it, id)
                     if (!hasMoreSpace) {
                         mapper.unify()

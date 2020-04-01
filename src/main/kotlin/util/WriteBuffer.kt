@@ -1,5 +1,8 @@
 package util
 
+import util.kotlinx.encodeInt
+import util.kotlinx.encodeLong
+import util.kotlinx.encodeShort
 import java.io.Closeable
 
 const val WRITE_BLOCK_SIZE = 4096
