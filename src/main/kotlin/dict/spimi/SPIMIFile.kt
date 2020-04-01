@@ -282,7 +282,12 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
 
     override fun find(word: String): RankedDocuments = binarySearch(word).let { idx ->
         if (idx < 0) emptyRankedDocuments()
-        else RankedDocuments(getMulti(idx).documents.asSequence().map { DocumentWithFlags(it) }.iterator())
+        else {
+            val documents = getMulti(idx).documents.asSequence()
+                .map { DocumentWithFlags(it) }
+                .map { RankedDocument(it) }
+            RankedDocuments(documents.iterator())
+        }
     }
 
     operator fun get(word: String) = find(word)

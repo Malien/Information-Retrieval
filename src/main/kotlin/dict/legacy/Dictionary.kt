@@ -9,17 +9,20 @@ import dict.legacy.joker.RelocationDict
 import dict.legacy.joker.TriGramDict
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
-import util.cross
+import util.defaultCross
+import util.defaultUnite
 import util.keySet
 import util.serialization.PriorityQueueSerializer
 import util.serialization.TreeMapArraySerializer
-import util.unite
 import java.util.*
 import kotlin.collections.component1
 import kotlin.collections.component2
 import kotlin.collections.set
 
 data class SpacedWord(val word: String, val spaced: Int)
+
+val cross = defaultCross<DocumentID>()
+val unite = defaultUnite<DocumentID>()
 
 enum class JokerDictType {
     PrefixTree,
@@ -90,7 +93,7 @@ class Dictionary(
 
     fun get(word: String): Documents =
         //TODO: temporary place here
-        if ('*' in word) getStar(word).asSequence().map { getSingle(it)?.keySet ?: emptyDocuments() }.reduce(::unite)
+        if ('*' in word) getStar(word).asSequence().map { getSingle(it)?.keySet ?: emptyDocuments() }.reduce(unite)
         else getSingle(word) ?: emptyDocuments()
 
     fun get(first: String, second: String): Documents =
@@ -152,7 +155,7 @@ class Dictionary(
             .map {
                 it.filter { (_, value) -> value != null }.map { entry -> entry.key }
             }.map { it.keySet }
-            .reduce(::cross)
+            .reduce(cross)
         return Documents(iterator {
             documentLoop@ for (document in crossed) {
                 for ((prevWordDocs, nextWordDocs) in wordEntries.zipWithNext()) {
@@ -171,7 +174,7 @@ class Dictionary(
         }
         val crossed = wordEntries.asSequence()
             .map { it.first.keys.keySet }
-            .reduce(::cross)
+            .reduce(cross)
         return Documents(iterator {
             documentLoop@ for (document in crossed) {
                 for ((prev, next) in wordEntries.zipWithNext()) {
@@ -195,7 +198,7 @@ class Dictionary(
             .map { (first, second) -> getDouble(first, second) }
             .let { docs ->
                 if (docs.any { it == null }) null
-                else docs.filterNotNull().reduce(::cross)
+                else docs.filterNotNull().reduce(cross)
             }
 
     private fun getSingle(word: String): Documents? =
@@ -204,7 +207,7 @@ class Dictionary(
     private fun getSingle(vararg words: String): Documents? =
         words.asSequence().map(::getSingle).let { docs ->
             if (docs.any { it == null }) null
-            else docs.filterNotNull().reduce(::cross)
+            else docs.filterNotNull().reduce(cross)
         }
 
     @Transient

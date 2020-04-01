@@ -248,10 +248,11 @@ fun main(args: Array<String>) {
 
         // REPL
         if (interactive) {
+            val uniteFunc = RankedDocument.Companion::unite
             val context = EvalContext(
                 fromID = dict::find,
-                unite = defaultUnite(),
-                cross = defaultCross(),
+                unite = uniteFactory(uniteFunc, uniteFunc),
+                cross = uniteFactory(uniteFunc, uniteFunc),
                 negate = ::negate
             )
             println("Started interactive REPL session.")
@@ -272,7 +273,8 @@ fun main(args: Array<String>) {
                             )
                         }
                     } else {
-                        res.forEach { println("${documents.path(it.documentID)} -- ${it.flags}") }
+                        res.sortedWith(RankedDocument.rankComparator)
+                            .forEach { println("${documents.path(it.doc)} -- ${it.rating}") }
                     }
                 } catch (e: InterpretationError) {
                     println("Interpretation Error: ${e.message}")

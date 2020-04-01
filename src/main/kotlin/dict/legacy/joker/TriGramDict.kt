@@ -2,11 +2,13 @@ package dict.legacy.joker
 
 import kotlinx.serialization.Serializable
 import util.KeySet
-import util.cross
+import util.defaultCross
 import util.keySet
 import util.serialization.TreeMapArraySerializer
 import util.serialization.TreeSetSerializer
 import java.util.*
+
+val cross = defaultCross<String>()
 
 @Serializable
 class TriGramDict : JokerDict {
@@ -24,7 +26,7 @@ class TriGramDict : JokerDict {
     fun get(closeTo: String): KeySet<String>? {
         val grams = toTriGrams(closeTo).asSequence().map { entries[it] }.toList()
         if (grams.any { it == null }) return null
-        return grams.filterNotNull().map { it.iterator().keySet }.reduce(::cross)
+        return grams.filterNotNull().map { it.iterator().keySet }.reduce(cross)
     }
 
     override fun getRough(query: String): Iterator<String>? {
@@ -35,7 +37,7 @@ class TriGramDict : JokerDict {
             chunks.mapIndexed { index, s ->
                 val word = if (index == 0) "$$s" else if (index == chunks.size - 1) "$s$" else s
                 get(word) ?: return@getRough null
-            }.reduce(::cross).iterator
+            }.reduce(cross).iterator
         } else throw UnsupportedOperationException("Not enough characters to start joker search on TriGramDict")
     }
 

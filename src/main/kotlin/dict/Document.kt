@@ -9,6 +9,9 @@ inline class BookZone(val flags: UByte) {
     operator fun get(idx: Int) =
         (flags.toUInt() shr idx) and 1u == 1u
 
+    val rating get() = weights.withIndex()
+        .fold(0.0) { acc, (idx, weight) -> acc + if (get(idx)) weight else 0.0 }
+
     val author
         get() = get(0)
 
@@ -37,6 +40,8 @@ inline class BookZone(val flags: UByte) {
         val ofTitle = BookZone(2u)
         val ofAnnotation = BookZone(4u)
         val ofBody = BookZone(8u)
+
+        val weights = doubleArrayOf(0.5, 0.3, 0.2, 0.1)
     }
 }
 
