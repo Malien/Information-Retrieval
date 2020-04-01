@@ -1,4 +1,5 @@
 import dict.Document
+import dict.DocumentID
 import dict.DocumentRegistry
 import dict.Documents
 import dict.legacy.Dictionary
@@ -128,6 +129,7 @@ fun main(args: Array<String>) {
     fun startReplSession(context: EvalContext<Documents>, documents: DocumentRegistry) {
         println("Started interactive REPL session.")
         print(">>> ")
+        val cross = defaultCross<DocumentID>()
         var query = readLine()
         while (query != null && query != ".q") {
             try {
@@ -248,8 +250,8 @@ fun main(args: Array<String>) {
         if (interactive) {
             val context = EvalContext(
                 fromID = dict::find,
-                unite = ::unite,
-                cross = ::cross,
+                unite = defaultUnite(),
+                cross = defaultCross(),
                 negate = ::negate
             )
             println("Started interactive REPL session.")
@@ -376,8 +378,8 @@ fun main(args: Array<String>) {
         if (interactive) {
             val eval = EvalContext(
                 fromID = dict::eval,
-                unite = ::unite,
-                cross = ::cross,
+                unite = defaultUnite(),
+                cross = defaultCross(),
                 negate = ::negate
             )
             startReplSession(eval, dict.documents)
