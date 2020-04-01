@@ -1,5 +1,6 @@
 package dict.spimi
 
+import dict.BookZone
 import kotlinx.serialization.toUtf8Bytes
 import util.WriteBuffer
 import util.kotlinx.mapArray
@@ -107,7 +108,13 @@ fun reduceStrings(files: Array<SPIMIFile>, writeBuffer: WriteBuffer, flags: SPIM
 }
 
 @ExperimentalUnsignedTypes
-data class MappedEntry(val word: String, val idx: Int, val docID: UInt, val wordID: UInt): Comparable<MappedEntry> {
+data class MappedEntry(
+    val word: String,
+    val idx: Int,
+    val docID: UInt,
+    val wordID: UInt,
+    val flags: BookZone
+): Comparable<MappedEntry> {
     override fun compareTo(other: MappedEntry): Int {
         var cmp = word.compareTo(other.word)
         if (cmp == 0) cmp = docID.compareTo(other.docID)
@@ -122,10 +129,10 @@ fun PriorityQueue<MappedEntry>.pushEntry(from: Iterator<WordLong>,
                                          idx: Int
 ) {
     if (from.hasNext()) {
-        val (wordID, docID) = from.next()
+        val (wordID, docID, flags) = from.next()
         val word = files[idx].dereferenceStringUncached(wordID)
         val mappedWordID = mappings[idx][wordID]
-        add(MappedEntry(word, idx, docID, mappedWordID))
+        add(MappedEntry(word, idx, docID, mappedWordID, flags))
     }
 }
 
@@ -139,7 +146,7 @@ fun unifyEntries(files: Array<SPIMIFile>, mappings: Mappings) = iterator {
     while (queue.isNotEmpty()) {
         val entry = queue.poll()
         val idx = entry.idx
-        yield(WordLong(wordID = entry.wordID, docID = entry.docID))
+        yield(WordLong(wordID = entry.wordID, docID = entry.docID, flags = entry.flags))
         val iterator = iterators[idx]
         queue.pushEntry(iterator, mappings, files, idx)
     }
@@ -151,17 +158,17 @@ data class MappedMultiEntry(val wordID: UInt, val documents: UIntArray)
 @ExperimentalUnsignedTypes
 fun compressEntries(unifiedEntries: Iterator<WordLong>) = iterator {
     if (unifiedEntries.hasNext()) {
-        var (prevWordID, firstDocID) = unifiedEntries.next()
+        var (prevWordID, firstDocID, firstFlags) = unifiedEntries.next()
         val documents = UIntArrayList()
-        documents.add(firstDocID)
+        documents.add(DocumentWithFlags(firstDocID, firstFlags).value)
 
-        for ((wordID, docID) in unifiedEntries) {
+        for ((wordID, docID, flags) in unifiedEntries) {
             if (wordID != prevWordID) {
                 yield(MappedMultiEntry(prevWordID, documents.toArray()))
                 documents.clear()
-                documents.add(docID)
+                documents.add(DocumentWithFlags(docID, flags).value)
                 prevWordID = wordID
-            } else if (docID != documents.last()) documents.add(docID)
+            } else if (docID != documents.last()) documents.add(DocumentWithFlags(docID, flags).value)
         }
         yield(MappedMultiEntry(prevWordID, documents.toArray()))
     }

@@ -1,9 +1,9 @@
 package dict.spimi
 
+import dict.BookZone
 import dict.DocumentID
 import kotlinx.serialization.toUtf8Bytes
 import util.WriteBuffer
-import util.combine
 import util.firstInt
 import util.secondUInt
 import util.unboxed.toULongList
@@ -53,7 +53,7 @@ class SPIMIMapper {
     private var maxWordLength = 0u
     private var maxDocID = 0u
 
-    fun add(word: String, document: DocumentID): Boolean {
+    fun add(word: String, document: DocumentID, zone: BookZone = BookZone.ofBody): Boolean {
         if (size == ENTRIES_COUNT) return false
         if (document.id.toUInt() > maxDocID) maxDocID = document.id.toUInt()
         if (word.length.toUInt() > maxWordLength) maxWordLength = word.length.toUInt()
@@ -64,7 +64,7 @@ class SPIMIMapper {
             strings.add(word)
             (strings.size - 1).toUInt()
         }
-        entries[size++] = WordLong(wordID, document).value
+        entries[size++] = WordLong(wordID, document.id.toUInt(), zone).value
         return size != ENTRIES_COUNT
     }
 
@@ -77,8 +77,9 @@ class SPIMIMapper {
             stringMap[string] = newAddr.toUInt()
         }
         entries.inPlaceMap(0 until size) {
-            val (wordID, docID) = WordLong(it)
-            combine(pointerMappings[wordID.toInt()].toUInt(), docID)
+            val (wordID, docID, flags) = WordLong(it)
+            WordLong(pointerMappings[wordID.toInt()].toUInt(), docID, flags).value
+//            combine(pointerMappings[wordID.toInt()].toUInt(), docID)
         }
         sortedStrings = true
     }
@@ -92,13 +93,22 @@ class SPIMIMapper {
     fun unify() {
         if (!sorted) sort()
         val seq = entries.asSequence().take(size)
+        val mask = flagMask.toULong().inv()
         val res = sequence {
-            var prev: ULong? = null
+            var prev: ULong = 0u
+            var assigned = false
             for (sorted in seq) {
-                if (prev == null) prev = sorted
-                else if (prev != sorted) {
+                if (!assigned) {
                     prev = sorted
-                    yield(sorted)
+                    assigned = true
+                } else {
+                    val wordAndDoc = sorted and mask
+                    if (prev and mask == wordAndDoc) {
+                        prev = prev or wordAndDoc
+                    } else {
+                        prev = sorted
+                        yield(prev)
+                    }
                 }
             }
         }.toULongList()
@@ -142,17 +152,18 @@ class SPIMIMapper {
                             stringOffset: Int = 0
     ) {
         for (i in range) {
-            val (wordID, docID) = WordLong(entries[i])
-            val strPtr = mapping[wordID.toInt() - stringOffset]
+            val word = WordLong(entries[i])
+            val docAndFlags = word.docIDAndFlag.value
+            val strPtr = mapping[word.wordID.toInt() - stringOffset]
             flags.spcAction(
                    big = { writeBuffer.add(strPtr.toInt()) },
                 medium = { writeBuffer.add(strPtr.toShort()) },
                  small = { writeBuffer.add(strPtr.toByte()) }
             )
             flags.dicAction(
-                   big = { writeBuffer.add(docID.toInt()) },
-                medium = { writeBuffer.add(docID.toShort()) },
-                 small = { writeBuffer.add(docID.toByte()) }
+                   big = { writeBuffer.add(docAndFlags.toInt()) },
+                medium = { writeBuffer.add(docAndFlags.toShort()) },
+                 small = { writeBuffer.add(docAndFlags.toByte()) }
             )
         }
     }

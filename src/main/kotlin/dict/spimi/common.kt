@@ -1,10 +1,8 @@
 package dict.spimi
 
+import dict.BookZone
 import dict.DocumentID
-import util.combine
-import util.firstUInt
-import util.secondUInt
-import util.split
+import util.KeySet
 
 data class SPIMIEntry(val word: String, val document: DocumentID): Comparable<SPIMIEntry> {
     override fun compareTo(other: SPIMIEntry): Int {
@@ -13,7 +11,45 @@ data class SPIMIEntry(val word: String, val document: DocumentID): Comparable<SP
         return cmp
     }
 }
-typealias SPIMIMultiEntry = Pair<String, Array<DocumentID>>
+
+@ExperimentalUnsignedTypes
+data class SPIMIMultiEntry(val word: String, val documents: UIntArray) {
+    operator fun get(idx: Int) = DocumentWithFlags(documents[idx])
+}
+
+@ExperimentalUnsignedTypes
+typealias RankedDocuments = KeySet<DocumentWithFlags>
+
+@ExperimentalUnsignedTypes
+fun emptyRankedDocuments(): RankedDocuments = KeySet(iterator {})
+
+@ExperimentalUnsignedTypes
+var flagBitsCount = 4u
+    set(value) {
+        require(value < 8u)
+        field = value
+        flagMask = 0xFFu shr (8u - value).toInt()
+    }
+
+@ExperimentalUnsignedTypes
+var flagMask = 0xFu
+    private set
+
+@ExperimentalUnsignedTypes
+inline class DocumentWithFlags(val value: UInt): Comparable<DocumentWithFlags> {
+
+    constructor(docID: UInt, flags: BookZone) : this(
+        docID shl flagBitsCount.toInt() or (flags.flags.toUInt() and flagMask.toUInt())
+    )
+
+    val documentID: DocumentID get() = DocumentID(docID.toInt())
+    val docID get() = value shr flagBitsCount.toInt()
+    val flags get() = BookZone((value and flagMask).toUByte())
+
+    override fun compareTo(other: DocumentWithFlags) = docID.compareTo(other.docID)
+
+    override fun toString() = "DocumentWithFlags(docID=$docID, flags=$flags)"
+}
 
 const val ENTRIES_COUNT = 10_000_000
 
@@ -26,23 +62,6 @@ const val HEADER_DOCUMENTS_LENGTH_SIZE = 4u
 
 @ExperimentalUnsignedTypes
 val HEADER_SIZE = HEADER_FLAG_SIZE + HEADER_STRING_LENGTH_SIZE + HEADER_DOCUMENTS_LENGTH_SIZE
-
-@ExperimentalUnsignedTypes
-inline class WordLong(val value: ULong): Comparable<WordLong> {
-    val wordID get() = value.firstUInt
-    val docID get() = value.secondUInt
-    val pair get() = split(value)
-
-    constructor(wordID: UInt, docID: UInt) : this(combine(wordID, docID))
-    constructor(wordID: UInt, documentID: DocumentID) : this(wordID, documentID.id.toUInt())
-
-    operator fun component1() = wordID
-    operator fun component2() = docID
-
-    override fun toString() = "WordLong(wordID=$wordID, docID=$docID)"
-
-    override fun compareTo(other: WordLong) = value.compareTo(other.value)
-}
 
 fun genDelimiters(processingThreads: Int): Array<String> {
     val splitPoints = "0abcdefghijklmnopqrstuvwxyz"

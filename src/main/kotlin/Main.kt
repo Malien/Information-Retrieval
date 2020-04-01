@@ -252,7 +252,37 @@ fun main(args: Array<String>) {
                 cross = ::cross,
                 negate = ::negate
             )
-            startReplSession(context, documents)
+            println("Started interactive REPL session.")
+            print(">>> ")
+            var input = readLine()
+            while (input != null && input != ".q") {
+                try {
+                    val tokens = tokenize(input)
+                    val tree = parse(tokens)
+                    val res = context.eval(tree)
+                    if (res.negated) {
+                        if (shouldNegate) {
+                            TODO("Negation for ranked search is not implemented")
+                        } else {
+                            println(
+                                "Warning. Got negated result. Evaluation of such can take a lot of resources." +
+                                        "If you want to enable negation evaluation launch program with '-n' argument"
+                            )
+                        }
+                    } else {
+                        res.forEach { println("${documents.path(it.documentID)} -- ${it.flags}") }
+                    }
+                } catch (e: InterpretationError) {
+                    println("Interpretation Error: ${e.message}")
+                } catch (e: SyntaxError) {
+                    println("Syntax Error: ${e.message}")
+                } catch (e: UnsupportedOperationException) {
+                    println("Unsupported operation: ${e.message}")
+                }
+                print(">>> ")
+                input = readLine()
+            }
+//            startReplSession(context, documents)
         }
 
         dict.close()

@@ -1,13 +1,12 @@
 package dict.spimi
 
-import dict.Documents
 import java.io.Closeable
 
+@ExperimentalUnsignedTypes
 interface SPIMIDict: Closeable {
-    @ExperimentalUnsignedTypes
     val count: UInt
 
-    fun find(word: String): Documents
+    fun find(word: String): RankedDocuments
     fun delete()
 
     val manifest: Manifest

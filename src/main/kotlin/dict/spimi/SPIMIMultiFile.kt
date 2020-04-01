@@ -1,7 +1,5 @@
 package dict.spimi
 
-import dict.Documents
-
 @ExperimentalUnsignedTypes
 class SPIMIMultiFile(private val files: List<SPIMIFile>, private val delimiters: Array<String>) : SPIMIDict {
 
@@ -14,7 +12,7 @@ class SPIMIMultiFile(private val files: List<SPIMIFile>, private val delimiters:
         return files.last()
     }
 
-    override fun find(word: String): Documents = enclosingFile(word).find(word)
+    override fun find(word: String): RankedDocuments = enclosingFile(word).find(word)
 
     override fun delete() {
         for (file in files) file.delete()

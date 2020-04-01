@@ -76,3 +76,9 @@ class UIntArrayList(initialSize: Int = 10, private val growthFactor: Float = 1.5
 
 @ExperimentalUnsignedTypes
 fun uintArrayListOf(vararg values: UInt) = UIntArrayList(values.size).also { it.addAll(values) }
+
+@ExperimentalUnsignedTypes
+inline fun buildUIntList(builder: UIntArrayList.() -> Unit) = UIntArrayList().also(builder)
+
+@ExperimentalUnsignedTypes
+inline fun buildUIntList(capacity: Int, builder: UIntArrayList.() -> Unit) = UIntArrayList(capacity).also(builder)

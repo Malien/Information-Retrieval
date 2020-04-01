@@ -1,11 +1,10 @@
 package dict.spimi
 
 import dict.DocumentID
-import dict.Documents
-import dict.emptyDocuments
 import util.kotlinx.decodeInt
 import util.kotlinx.decodeUShort
 import util.kotlinx.decodeVariableByteEncodedInt
+import util.unboxed.buildUIntList
 import java.io.File
 import java.io.RandomAccessFile
 
@@ -18,10 +17,9 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
         HashMap<UInt, String>()
     }
     private val documentsCache by lazy {
-        HashMap<UInt, Array<DocumentID>>()
+        HashMap<UInt, UIntArray>()
     }
 
-    val filename get() = file.name
     val filepath get() = file.path
 
     private var stringsStream: RandomAccessFile? = null
@@ -71,12 +69,12 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
         return String(bytestring)
     }
 
-    private inline fun ByteArray.forEachVariableEncodedInt(from: Int = 0, to: Int = size, action: (Int) -> Unit) {
+    private inline fun ByteArray.forEachVariableEncodedInt(from: Int = 0, to: Int = size, action: (UInt) -> Unit) {
         var bytesRead = from
         while (bytesRead < to) {
             val (element, elementLength) = decodeVariableByteEncodedInt(bytesRead)
             bytesRead += elementLength.toInt()
-            action(element.toInt())
+            action(element)
         }
     }
 
@@ -84,15 +82,15 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
         flags: SPIMIFlags,
         from: Int = 0,
         to: Int = size,
-        action: (Int) -> Unit
+        action: (UInt) -> Unit
     ) {
         val docSize = flags.documentIDSize.toInt()
         for (i in from until to step docSize) {
             action(
                 flags.dicAction(
-                       big = { decodeInt(i) },
-                    medium = { decodeUShort(i).toInt() },
-                     small = { this[i].toUByte().toInt() }
+                       big = { decodeInt(i).toUInt() },
+                    medium = { decodeUShort(i).toUInt() },
+                     small = { this[i].toUByte().toUInt() }
                 )
             )
         }
@@ -107,26 +105,26 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
             stream.read(bytedocs)
 
             if (flags.dbi) {
-                if (flags.dvbe) buildList<DocumentID> {
-                    var doc = 0
+                if (flags.dvbe) buildUIntList {
+                    var doc = 0u
                     bytedocs.forEachVariableEncodedInt {
                         doc += it
-                        add(DocumentID(doc))
+                        add(doc)
                     }
-                } else buildList<DocumentID> {
-                    var doc = 0
+                } else buildUIntList {
+                    var doc = 0u
                     bytedocs.forEachDocumentID(flags) {
                         doc += it
-                        add(DocumentID(doc))
+                        add(doc)
                     }
                 }
             } else {
-                if (flags.dvbe) buildList<DocumentID> {
-                    bytedocs.forEachVariableEncodedInt { add(DocumentID(it)) }
-                } else buildList<DocumentID> {
-                    bytedocs.forEachDocumentID(flags) { add(DocumentID(it)) }
+                if (flags.dvbe) buildUIntList {
+                    bytedocs.forEachVariableEncodedInt { add(it) }
+                } else buildUIntList {
+                    bytedocs.forEachDocumentID(flags) { add(it) }
                 }
-            }.toTypedArray()
+            }.toArray()
         }
 
     fun getRaw(idx: UInt): WordLong {
@@ -140,7 +138,7 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
                big = { fileStream.readInt() },
             medium = { fileStream.readUnsignedShort() },
              small = { fileStream.readUnsignedByte() }).toUInt()
-        return WordLong(str, doc)
+        return WordLong.withCombinedFlags(str, doc)
     }
 
     data class RawMultiResult(val strPtr: UInt, val docBegin: UInt, val docEnd: UInt)
@@ -250,9 +248,9 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
             while (pos < HEADER_SIZE + stringsBlockSize) {
                 stream.seek(pos.toLong())
                 val length = flags.slcAction(
-                    big = { stream.readInt() },
+                       big = { stream.readInt() },
                     medium = { stream.readUnsignedShort() },
-                    small = { stream.readUnsignedByte() }
+                     small = { stream.readUnsignedByte() }
                 ).toUInt()
                 val bytestring = ByteArray(length.toInt())
                 stream.read(bytestring)
@@ -282,8 +280,9 @@ class SPIMIFile(private val file: File) : Iterable<SPIMIEntry>, RandomAccess, SP
         return -(lo.toInt()) - 1
     }
 
-    override fun find(word: String): Documents = binarySearch(word).let { idx ->
-        if (idx < 0) emptyDocuments() else Documents(getMulti(idx).second)
+    override fun find(word: String): RankedDocuments = binarySearch(word).let { idx ->
+        if (idx < 0) emptyRankedDocuments()
+        else RankedDocuments(getMulti(idx).documents.asSequence().map { DocumentWithFlags(it) }.iterator())
     }
 
     operator fun get(word: String) = find(word)
