@@ -5,7 +5,7 @@ import java.util.*
 import kotlin.math.sqrt
 
 @ExperimentalUnsignedTypes
-inline class DocumentVec(private val vector: TreeMap<String, UInt>) {
+inline class DocumentVec(private val vector: TreeMap<String, UInt> = TreeMap()) {
     fun norm() = sqrt(vector.values.fold(0u, { acc, v -> acc + v * v }).toDouble())
 
     fun cos(other: DocumentVec) =
@@ -44,5 +44,10 @@ inline class DocumentVec(private val vector: TreeMap<String, UInt>) {
                 }
             }
         }
+    }
+
+    fun add(token: String) {
+        val value = vector.getOrPut(token) { 0u }
+        vector[token] = value + 1u
     }
 }
