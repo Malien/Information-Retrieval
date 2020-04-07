@@ -2,12 +2,14 @@ import dict.Document
 import dict.DocumentID
 import dict.DocumentRegistry
 import dict.Documents
+import dict.cluster.closestIndex
 import dict.cluster.map
 import dict.cluster.select
 import dict.legacy.Dictionary
 import dict.legacy.JokerDictType
 import dict.spimi.*
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.internal.ArrayListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonConfiguration
 import parser.cfg.*
@@ -188,13 +190,20 @@ fun main(args: Array<String>) {
         .map { it.file.length() }
         .sum()
 
-    val mode = if (cluster) Mode.CLUSTER else if (mapReduce) Mode.MAP_REDUCE else Mode.LEGACY
-
-    when(mode) {
+    when(if (cluster) Mode.CLUSTER else if (mapReduce) Mode.MAP_REDUCE else Mode.LEGACY) {
         Mode.CLUSTER -> {
-            val mapped = files.map { map(it.file) }
-            val leaders = select(mapped, sqrt(mapped.size.toDouble()).toInt())
-
+            val documents = DocumentRegistry()
+            val (mapped) = map(files, documents)
+            val leaders = select(mapped, sqrt(mapped.size.toDouble()).toInt()).map { it.second }
+            val clusters = arrayListOf<ArrayList<DocumentID>>()
+            for (i in leaders.indices) clusters.add(ArrayList())
+            for ((id, vec) in mapped) {
+                val idx = closestIndex(leaders, vec)
+                clusters[idx].add(id)
+            }
+            if (saveLocation != null) {
+                toJSONFile(clusters, saveLocation, ArrayListSerializer(ArrayListSerializer(DocumentID.serializer())))
+            }
         }
         Mode.MAP_REDUCE -> {
             // Map-reduce version of dict.

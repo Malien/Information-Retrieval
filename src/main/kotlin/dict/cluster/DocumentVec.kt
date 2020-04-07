@@ -1,27 +1,28 @@
 package dict.cluster
 
-import util.IntPair
 import java.util.*
 import kotlin.math.sqrt
 
-@ExperimentalUnsignedTypes
-inline class DocumentVec(private val vector: TreeMap<String, UInt> = TreeMap()) {
-    fun norm() = sqrt(vector.values.fold(0u, { acc, v -> acc + v * v }).toDouble())
+data class DocumentVec(val vector: TreeMap<String, Double> = TreeMap()) {
+    var words = 0
+        private set
+
+    fun norm() = sqrt(vector.values.fold(0.0, { acc, v -> acc + v * v }))
 
     fun cos(other: DocumentVec) =
-        (this dot other).toDouble() / norm() / other.norm()
+        (this dot other) / norm() / other.norm()
 
     infix fun dot(rhs: DocumentVec) =
-        this.zip(rhs).asSequence().fold(0, { acc, (l, v) -> acc + (l * v).toInt() })
+        this.zipSame(rhs).asSequence().fold(0.0, { acc, (l, v) -> acc + l * v })
 
-    infix fun zip(rhs: DocumentVec): Iterator<IntPair> = iterator {
+    infix fun zip(rhs: DocumentVec) = iterator {
         val leftIter = vector.iterator()
         val rightIter = vector.iterator()
         if (!leftIter.hasNext()) {
-            for ((_, k) in leftIter) yield(IntPair(0u, k))
+            for ((_, k) in leftIter) yield(0.0 to k)
         }
         if (!rightIter.hasNext()) {
-            for ((_, k) in rightIter) yield(IntPair(k, 0u))
+            for ((_, k) in rightIter) yield(k to 0.0)
         }
         var left = leftIter.next()
         var right = rightIter.next()
@@ -30,15 +31,37 @@ inline class DocumentVec(private val vector: TreeMap<String, UInt> = TreeMap()) 
             val cmp = left.key.compareTo(right.key)
             when {
                 cmp > 0 -> {
-                    yield(IntPair(0u, right.value))
+                    yield(0.0 to right.value)
                     right = rightIter.next()
                 }
                 cmp < 0 -> {
-                    yield(IntPair(left.value, 0u))
+                    yield(left.value to 0.0)
                     left = leftIter.next()
                 }
                 else -> {
-                    yield(IntPair(left.value, right.value))
+                    yield(left.value to right.value)
+                    left = leftIter.next()
+                    right = rightIter.next()
+                }
+            }
+        }
+    }
+
+    infix fun zipSame(rhs: DocumentVec) = iterator {
+        val leftIter = vector.iterator()
+        val rightIter = rhs.vector.iterator()
+        if (!leftIter.hasNext()) return@iterator
+        if (!rightIter.hasNext()) return@iterator
+        var left = leftIter.next()
+        var right = rightIter.next()
+
+        while (leftIter.hasNext() && rightIter.hasNext()) {
+            val cmp = left.key.compareTo(right.key)
+            when {
+                cmp > 0 -> right = rightIter.next()
+                cmp < 0 -> left = leftIter.next()
+                else -> {
+                    yield(left.value to right.value)
                     left = leftIter.next()
                     right = rightIter.next()
                 }
@@ -47,7 +70,21 @@ inline class DocumentVec(private val vector: TreeMap<String, UInt> = TreeMap()) 
     }
 
     fun add(token: String) {
-        val value = vector.getOrPut(token) { 0u }
-        vector[token] = value + 1u
+        words++
+        val value = vector.getOrPut(token) { 0.0 }
+        vector[token] = value + 1
     }
+
+    fun normalize() {
+        for (entry in vector) {
+            entry.setValue(entry.value / words)
+        }
+    }
+
+    fun relateTo(idf: InvertedDocumentFrequency) {
+        for (entry in vector) {
+            entry.setValue(idf[entry.key] * entry.value)
+        }
+    }
+
 }

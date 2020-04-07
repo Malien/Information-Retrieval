@@ -38,6 +38,7 @@ input
 out.json
 chunks
 *.sppkg
+cluster.json
 
 # OS files
 .DS_Store
