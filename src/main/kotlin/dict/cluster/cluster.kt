@@ -29,3 +29,7 @@ fun <T> select(list: List<T>, length: Int): List<T> {
 
 @ExperimentalUnsignedTypes
 fun closest(leaders: List<DocumentVec>, vec: DocumentVec) = leaders.maxBy { it.cos(vec) }
+
+@ExperimentalUnsignedTypes
+fun closestIndex(leaders: List<DocumentVec>, vec: DocumentVec) =
+    leaders.withIndex().maxBy { (_, leader) -> leader.cos(vec) }?.index ?: -1

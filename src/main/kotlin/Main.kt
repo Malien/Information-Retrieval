@@ -2,6 +2,8 @@ import dict.Document
 import dict.DocumentID
 import dict.DocumentRegistry
 import dict.Documents
+import dict.cluster.map
+import dict.cluster.select
 import dict.legacy.Dictionary
 import dict.legacy.JokerDictType
 import dict.spimi.*
@@ -18,6 +20,7 @@ import java.io.FileReader
 import java.io.FileWriter
 import java.nio.file.Files
 import java.nio.file.Paths
+import kotlin.math.sqrt
 import kotlin.streams.asSequence
 import kotlin.system.measureTimeMillis
 
@@ -77,7 +80,8 @@ val boolArguments = hashSetOf(
     "disable-double-word",
     "disable-position",
     "map-reduce",
-    "r"
+    "r",
+    "cluster"
 )
 val numberArguments: HashMap<String, Double?> = hashMapOf(
     "p" to runtime.availableProcessors().toDouble()
@@ -86,6 +90,8 @@ val stringArguments =
     hashMapOf<String, String?>("execute" to null, "find" to null, "o" to null, "from" to null, "joker" to null)
 
 val json = Json(JsonConfiguration.Stable)
+
+enum class Mode { CLUSTER, MAP_REDUCE, LEGACY }
 
 /**
  * Main application entrypoint. Processed commandline arguments, setups dicts, links everything together
@@ -114,6 +120,7 @@ fun main(args: Array<String>) {
     val saveLocation = parsed.strings["o"]
     val processingThreads = if (sequential) 1 else parsed.numbers["p"]!!.toInt()
     val recursive = "r" in parsed.booleans
+    val cluster = "cluster" in parsed.booleans
 
     /**
      * Starts an interactive REPL (Read Eval Print Loop) session to evaluate user specified queries.
@@ -181,211 +188,219 @@ fun main(args: Array<String>) {
         .map { it.file.length() }
         .sum()
 
-    if (mapReduce) {
-        // Map-reduce version of dict.
-        if (verbose) {
-            if (doubleWord) println("Double-word dict is disabled to support map-reduce indexing")
-            if (positioned) println("Positioned dict is disabled to support map-reduce indexing") // TODO
-            if (jokerType != null) println("Joker is disabled to support map-reduce indexing")
-            if (files.isNotEmpty() && from != null)
-                println("Cannot extend already existing dictionary. Loading $from without changes")
+    val mode = if (cluster) Mode.CLUSTER else if (mapReduce) Mode.MAP_REDUCE else Mode.LEGACY
+
+    when(mode) {
+        Mode.CLUSTER -> {
+            val mapped = files.map { map(it.file) }
+            val leaders = select(mapped, sqrt(mapped.size.toDouble()).toInt())
+
         }
-
-        data class IndexingResult(val file: SPIMIDict, val documents: DocumentRegistry)
-
-        val (dict, documents) = if (from != null) {
-            // Loading dict from disk
-            if (files.isNotEmpty() && verbose) println("Specified dict load location. Indexing won't be done")
-            val manifest = fromJSONFile("$from/manifest.json", Manifest.serializer())
-            val registry = fromJSONFile("$from/registry.json", DocumentRegistry.serializer())
-            IndexingResult(manifest.openDict(), registry)
-        } else {
-            // Indexing dict to a disk
-            val dictPath = saveLocation ?: "./chunks.sppkg"
-            val dictDirFile = File(dictPath)
-            if (!dictDirFile.exists()) dictDirFile.mkdirs()
-            val documents = DocumentRegistry()
-
-            val delimiters = genDelimiters(processingThreads)
-
-            if (verbose) println("\nMapping:")
-            val mappingFunction = if (verbose) ::verboseMultiMap else ::multiMap
-            val spimiFiles = mappingFunction(
-                files,
-                dictDirFile,
-                documents,
-                processingThreads,
-                delimiters
-            )
-
-            if (verbose) println("\nReducing:")
-            // Reduce step
-            val reduceFunction = if (verbose) ::verboseMultiReduce else ::multiReduce
-            val reduced = reduceFunction(spimiFiles, dictDirFile, delimiters)
-
-            for (file in spimiFiles.flatten()) file.delete()
-            IndexingResult(reduced, documents)
-        }
-
-        // Save registry to the disk
-        if (saveLocation != null) {
-            toJSONFile(documents, "$saveLocation/registry.json", DocumentRegistry.serializer())
-            toJSONFile(dict.manifest, "$saveLocation/manifest.json", Manifest.serializer())
-        }
-
-        // Print stats
-        if (stat) {
-            val memoryUsage = (runtime.totalMemory() - runtime.freeMemory()).megabytes
-            val unique = dict.count
-            val count = files.count()
-            val mbs = size.megabytes
-            println(
-                "Indexed $count files ($mbs MB total). " +
-                        "Unique words: $unique. " +
-                        "Memory usage: $memoryUsage MB."
-            )
-        }
-
-        // REPL
-        if (interactive) {
-            val uniteFunc = RankedDocument.Companion::unite
-            val context = EvalContext(
-                fromID = dict::find,
-                unite = uniteFactory(uniteFunc, uniteFunc),
-                cross = uniteFactory(uniteFunc, uniteFunc),
-                negate = ::negate
-            )
-            println("Started interactive REPL session.")
-            print(">>> ")
-            var input = readLine()
-            while (input != null && input != ".q") {
-                try {
-                    val tokens = tokenize(input)
-                    val tree = parse(tokens)
-                    val res = context.eval(tree)
-                    if (res.negated) {
-                        if (shouldNegate) {
-                            TODO("Negation for ranked search is not implemented")
-                        } else {
-                            println(
-                                "Warning. Got negated result. Evaluation of such can take a lot of resources." +
-                                        "If you want to enable negation evaluation launch program with '-n' argument"
-                            )
-                        }
-                    } else {
-                        res.sortedWith(RankedDocument.rankComparator)
-                            .forEach { println("${documents.path(it.doc)} -- ${it.rating}") }
-                    }
-                } catch (e: InterpretationError) {
-                    println("Interpretation Error: ${e.message}")
-                } catch (e: SyntaxError) {
-                    println("Syntax Error: ${e.message}")
-                } catch (e: UnsupportedOperationException) {
-                    println("Unsupported operation: ${e.message}")
-                }
-                print(">>> ")
-                input = readLine()
-            }
-//            startReplSession(context, documents)
-        }
-
-        dict.close()
-        // If no save location is specified dict is deleted from the disk
-        if (from == null && saveLocation == null) dict.delete()
-
-    } else {
-        // Legacy dict
-
-        // Load dict
-        val dict = if (from != null) {
-            val dict = fromJSONFile(from, Dictionary.serializer())
+        Mode.MAP_REDUCE -> {
+            // Map-reduce version of dict.
             if (verbose) {
-                if (doubleWord != dict.doubleWord) {
-                    println(
-                        """"WARNING: Mismatch in read dict and arguments: 
+                if (doubleWord) println("Double-word dict is disabled to support map-reduce indexing")
+                if (positioned) println("Positioned dict is disabled to support map-reduce indexing") // TODO
+                if (jokerType != null) println("Joker is disabled to support map-reduce indexing")
+                if (files.isNotEmpty() && from != null)
+                    println("Cannot extend already existing dictionary. Loading $from without changes")
+            }
+
+            data class IndexingResult(val file: SPIMIDict, val documents: DocumentRegistry)
+
+            val (dict, documents) = if (from != null) {
+                // Loading dict from disk
+                if (files.isNotEmpty() && verbose) println("Specified dict load location. Indexing won't be done")
+                val manifest = fromJSONFile("$from/manifest.json", Manifest.serializer())
+                val registry = fromJSONFile("$from/registry.json", DocumentRegistry.serializer())
+                IndexingResult(manifest.openDict(), registry)
+            } else {
+                // Indexing dict to a disk
+                val dictPath = saveLocation ?: "./chunks.sppkg"
+                val dictDirFile = File(dictPath)
+                if (!dictDirFile.exists()) dictDirFile.mkdirs()
+                val documents = DocumentRegistry()
+
+                val delimiters = genDelimiters(processingThreads)
+
+                if (verbose) println("\nMapping:")
+                val mappingFunction = if (verbose) ::verboseMultiMap else ::multiMap
+                val spimiFiles = mappingFunction(
+                    files,
+                    dictDirFile,
+                    documents,
+                    processingThreads,
+                    delimiters
+                )
+
+                if (verbose) println("\nReducing:")
+                // Reduce step
+                val reduceFunction = if (verbose) ::verboseMultiReduce else ::multiReduce
+                val reduced = reduceFunction(spimiFiles, dictDirFile, delimiters)
+
+                for (file in spimiFiles.flatten()) file.delete()
+                IndexingResult(reduced, documents)
+            }
+
+            // Save registry to the disk
+            if (saveLocation != null) {
+                toJSONFile(documents, "$saveLocation/registry.json", DocumentRegistry.serializer())
+                toJSONFile(dict.manifest, "$saveLocation/manifest.json", Manifest.serializer())
+            }
+
+            // Print stats
+            if (stat) {
+                val memoryUsage = (runtime.totalMemory() - runtime.freeMemory()).megabytes
+                val unique = dict.count
+                val count = files.count()
+                val mbs = size.megabytes
+                println(
+                    "Indexed $count files ($mbs MB total). " +
+                            "Unique words: $unique. " +
+                            "Memory usage: $memoryUsage MB."
+                )
+            }
+
+            // REPL
+            if (interactive) {
+                val uniteFunc = RankedDocument.Companion::unite
+                val context = EvalContext(
+                    fromID = dict::find,
+                    unite = uniteFactory(uniteFunc, uniteFunc),
+                    cross = uniteFactory(uniteFunc, uniteFunc),
+                    negate = ::negate
+                )
+                println("Started interactive REPL session.")
+                print(">>> ")
+                var input = readLine()
+                while (input != null && input != ".q") {
+                    try {
+                        val tokens = tokenize(input)
+                        val tree = parse(tokens)
+                        val res = context.eval(tree)
+                        if (res.negated) {
+                            if (shouldNegate) {
+                                TODO("Negation for ranked search is not implemented")
+                            } else {
+                                println(
+                                    "Warning. Got negated result. Evaluation of such can take a lot of resources." +
+                                            "If you want to enable negation evaluation launch program with '-n' argument"
+                                )
+                            }
+                        } else {
+                            res.sortedWith(RankedDocument.rankComparator)
+                                .forEach { println("${documents.path(it.doc)} -- ${it.rating}") }
+                        }
+                    } catch (e: InterpretationError) {
+                        println("Interpretation Error: ${e.message}")
+                    } catch (e: SyntaxError) {
+                        println("Syntax Error: ${e.message}")
+                    } catch (e: UnsupportedOperationException) {
+                        println("Unsupported operation: ${e.message}")
+                    }
+                    print(">>> ")
+                    input = readLine()
+                }
+            }
+
+            dict.close()
+            // If no save location is specified dict is deleted from the disk
+            if (from == null && saveLocation == null) dict.delete()
+
+        }
+        Mode.LEGACY -> {
+            // Legacy dict
+
+            // Load dict
+            val dict = if (from != null) {
+                val dict = fromJSONFile(from, Dictionary.serializer())
+                if (verbose) {
+                    if (doubleWord != dict.doubleWord) {
+                        println(
+                            """"WARNING: Mismatch in read dict and arguments: 
                        |disable-double-word is set to ${!doubleWord} in args and to ${!dict.doubleWord} in read dictionary.
                        |May result in worse performance and/or worse accuracy.
                        |Changed dict type to respect current settings. This will introduce inconsistency with newly indexed data"""
-                    )
-                }
-                if (positioned != dict.position) {
-                    println(
-                        """WARNING: Mismatch in read dict and arguments: 
+                        )
+                    }
+                    if (positioned != dict.position) {
+                        println(
+                            """WARNING: Mismatch in read dict and arguments: 
                       |disable-position is set to ${!positioned} in args and to ${!dict.position} in read dictionary.
                       |May result in worse performance and/or worse accuracy.
                       |Changed dict type to respect current settings. This will introduce inconsistency with newly indexed data"""
-                    )
-                }
-                if (jokerType != dict.jokerType) {
-                    println(
-                        """WARNING: Mismatch in read dict and arguments: 
+                        )
+                    }
+                    if (jokerType != dict.jokerType) {
+                        println(
+                            """WARNING: Mismatch in read dict and arguments: 
                       |joker is set to $jokerType in args and to ${dict.jokerType} in read dictionary.
                       |Changed option to respect dictionary's settings"""
-                    )
+                        )
+                    }
+                }
+                dict.also {
+                    it.doubleWord = doubleWord
+                    it.position = positioned
+                }
+            } else Dictionary(
+                doubleWord = doubleWord,
+                position = positioned,
+                jokerType = jokerType
+            )
+
+            // Indexing
+            val syncTime = measureTimeMillis {
+                for (file in files) {
+                    val id = dict.documents.register(file)
+                    if (verbose) println("${id.id} -> $file")
+                    val br = BufferedReader(FileReader(file.file))
+                    var prev: String? = null
+                    br.lineSequence()
+                        .flatMap { it.split(Regex("\\W+")).asSequence() }
+                        .filter { it.isNotBlank() }
+                        .map { it.toLowerCase() }
+                        .forEachIndexed { idx, word ->
+                            dict.add(word, position = idx, from = id, prev = prev)
+                            prev = word
+                        }
+                    br.close()
                 }
             }
-            dict.also {
-                it.doubleWord = doubleWord
-                it.position = positioned
+
+            // Save
+            if (saveLocation != null) {
+                val out = FileWriter(saveLocation)
+                val strData = json.stringify(Dictionary.serializer(), dict)
+                out.write(strData)
+                out.close()
             }
-        } else Dictionary(
-            doubleWord = doubleWord,
-            position = positioned,
-            jokerType = jokerType
-        )
 
-        // Indexing
-        val syncTime = measureTimeMillis {
-            for (file in files) {
-                val id = dict.documents.register(file)
-                if (verbose) println("${id.id} -> $file")
-                val br = BufferedReader(FileReader(file.file))
-                var prev: String? = null
-                br.lineSequence()
-                    .flatMap { it.split(Regex("\\W+")).asSequence() }
-                    .filter { it.isNotBlank() }
-                    .map { it.toLowerCase() }
-                    .forEachIndexed { idx, word ->
-                        dict.add(word, position = idx, from = id, prev = prev)
-                        prev = word
-                    }
-                br.close()
+            // Stats
+            if (stat) {
+                val memoryUsage = (runtime.totalMemory() - runtime.freeMemory()).megabytes
+                val total = dict.totalWords
+                val unique = dict.uniqueWords
+                val count = files.count()
+                val mbs = size.megabytes
+                println(
+                    "Indexed $count files ($mbs MB total). " +
+                            "Took $syncTime ms to index. " +
+                            "Total words: $total, unique: $unique. " +
+                            "Memory usage: $memoryUsage MB."
+                )
             }
-        }
 
-        // Save
-        if (saveLocation != null) {
-            val out = FileWriter(saveLocation)
-            val strData = json.stringify(Dictionary.serializer(), dict)
-            out.write(strData)
-            out.close()
-        }
-
-        // Stats
-        if (stat) {
-            val memoryUsage = (runtime.totalMemory() - runtime.freeMemory()).megabytes
-            val total = dict.totalWords
-            val unique = dict.uniqueWords
-            val count = files.count()
-            val mbs = size.megabytes
-            println(
-                "Indexed $count files ($mbs MB total). " +
-                        "Took $syncTime ms to index. " +
-                        "Total words: $total, unique: $unique. " +
-                        "Memory usage: $memoryUsage MB."
-            )
-        }
-
-        // REPL
-        if (interactive) {
-            val eval = EvalContext(
-                fromID = dict::eval,
-                unite = defaultUnite(),
-                cross = defaultCross(),
-                negate = ::negate
-            )
-            startReplSession(eval, dict.documents)
+            // REPL
+            if (interactive) {
+                val eval = EvalContext(
+                    fromID = dict::eval,
+                    unite = defaultUnite(),
+                    cross = defaultCross(),
+                    negate = ::negate
+                )
+                startReplSession(eval, dict.documents)
+            }
         }
     }
-
 }
