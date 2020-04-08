@@ -186,6 +186,7 @@ fun main(args: Array<String>) {
         }
 
         data class IndexingResult(val file: SPIMIDict, val documents: DocumentRegistry)
+        var wordsMapped = 0
 
         val (dict, documents) = if (from != null) {
             // Loading dict from disk
@@ -203,13 +204,22 @@ fun main(args: Array<String>) {
             val delimiters = genDelimiters(processingThreads)
 
             if (verbose) println("\nMapping:")
-            val mappingFunction = if (verbose) ::verboseMultiMap else ::multiMap
-            val spimiFiles = mappingFunction(
+            val spimiFiles = if (verbose) {
+                val (mappedFiles, mappedWords) = verboseMultiMap(
+                    files,
+                    to = dictDirFile,
+                    documents = documents,
+                    processingThreads = processingThreads,
+                    delimiters = delimiters
+                )
+                wordsMapped = mappedWords
+                mappedFiles
+            } else multiMap(
                 files,
-                dictDirFile,
-                documents,
-                processingThreads,
-                delimiters
+                to = dictDirFile,
+                documents = documents,
+                processingThreads = processingThreads,
+                delimiters = delimiters
             )
 
             if (verbose) println("\nReducing:")
@@ -235,6 +245,7 @@ fun main(args: Array<String>) {
             val mbs = size.megabytes
             println(
                 "Indexed $count files ($mbs MB total). " +
+                        "Total word count: ${if (wordsMapped == 0) "N/A" else wordsMapped.toString()} " +
                         "Unique words: $unique. " +
                         "Memory usage: $memoryUsage MB."
             )
