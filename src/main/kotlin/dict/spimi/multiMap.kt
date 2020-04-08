@@ -25,13 +25,14 @@ data class MappingStatus(
     val filesAssigned: Int,
     var filesMapped: Int = 0,
     var bytesMapped: Long = 0,
+    var wordsMapped: Int = 0,
     var done: Boolean = false,
     var dotsCount: Int = 0,
     var lineLength: Int = 0
 )
 
 sealed class MappingReport(val idx: Int)
-class MappedFile(idx: Int, val bytes: Long) : MappingReport(idx)
+class MappedFile(idx: Int, val bytes: Long, val words: Int) : MappingReport(idx)
 class MappingStageDone(idx: Int, val stage: Int) : MappingReport(idx)
 class DoneMapping(idx: Int) : MappingReport(idx)
 
@@ -91,6 +92,8 @@ fun globalMapperStatusLine(stat: MappingStatus) = buildString {
         append(' ')
 }
 
+typealias Matrix<T> = Array<Array<T>>
+
 @ExperimentalUnsignedTypes
 fun verboseMultiMap(
     files: List<File>,
@@ -98,7 +101,7 @@ fun verboseMultiMap(
     documents: DocumentRegistry,
     processingThreads: Int = Runtime.getRuntime().availableProcessors(),
     delimiters: Array<String> = genDelimiters(processingThreads)
-): Array<Array<SPIMIFile>> {
+): Pair<Matrix<SPIMIFile>, Int> {
     require(to.isDirectory)
 
     // Splits files between processing threads
@@ -111,6 +114,8 @@ fun verboseMultiMap(
         async { // Launches separate thread of execution which returns a value
             val mapper = SPIMIMapper()
             val list = ArrayList<Array<SPIMIFile>>()
+            var wordsMapped = 0
+            var prevWords = 0
             for (file in split) {
                 val id: DocumentID
                 // Register document in centralized dictionary
@@ -119,6 +124,7 @@ fun verboseMultiMap(
                 }
                 val br = BufferedReader(FileReader(file))
                 br.tokenSequence.forEach {
+                    wordsMapped++
                     val hasMoreSpace = mapper.add(it, id)
                     if (!hasMoreSpace) {
                         queue.put(MappingStageDone(idx, 1))
@@ -133,7 +139,8 @@ fun verboseMultiMap(
                     }
                 }
                 br.close()
-                queue.put(MappedFile(idx, file.length()))
+                queue.put(MappedFile(idx, file.length(), wordsMapped - prevWords))
+                prevWords = wordsMapped
             }
             queue.put(MappingStageDone(idx, 1))
             mapper.unify()
@@ -162,6 +169,10 @@ fun verboseMultiMap(
                 is MappedFile -> {
                     stat.bytesMapped += report.bytes
                     globalStat.bytesMapped += report.bytes
+
+                    stat.wordsMapped += report.words
+                    globalStat.wordsMapped += report.words
+
                     stat.filesMapped++
                     globalStat.filesMapped++
                 }
@@ -186,7 +197,7 @@ fun verboseMultiMap(
         }
 
         // This part actually begins evaluation of mapper sequence
-        spimiFiles.toMutableList().flatMap { it.get() }.toTypedArray()
+        spimiFiles.toMutableList().flatMap { it.get() }.toTypedArray() to globalStat.wordsMapped
     }
 
     println("\nMapping done in $mapTime ms")
@@ -200,7 +211,7 @@ fun multiMap(
     documents: DocumentRegistry,
     processingThreads: Int = Runtime.getRuntime().availableProcessors(),
     delimiters: Array<String> = genDelimiters(processingThreads)
-): Array<Array<SPIMIFile>> {
+): Matrix<SPIMIFile> {
     require(to.isDirectory)
 
     // Splits files between processing threads
