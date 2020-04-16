@@ -2,14 +2,11 @@ import dict.Document
 import dict.DocumentID
 import dict.DocumentRegistry
 import dict.Documents
-import dict.cluster.closestIndex
 import dict.cluster.map
-import dict.cluster.select
 import dict.legacy.Dictionary
 import dict.legacy.JokerDictType
 import dict.spimi.*
 import kotlinx.serialization.KSerializer
-import kotlinx.serialization.internal.ArrayListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonConfiguration
 import parser.cfg.*
@@ -22,7 +19,6 @@ import java.io.FileReader
 import java.io.FileWriter
 import java.nio.file.Files
 import java.nio.file.Paths
-import kotlin.math.sqrt
 import kotlin.streams.asSequence
 import kotlin.system.measureTimeMillis
 
@@ -170,6 +166,40 @@ fun main(args: Array<String>) {
         }
     }
 
+    fun startRankedReplSession(context: EvalContext<RankedDocuments>, documents: DocumentRegistry) {
+        println("Started interactive REPL session.")
+        print(">>> ")
+        var input = readLine()
+        while (input != null && input != ".q") {
+            try {
+                val tokens = tokenize(input)
+                val tree = parse(tokens)
+                val res = context.eval(tree)
+                if (res.negated) {
+                    if (shouldNegate) {
+                        TODO("Negation for ranked search is not implemented")
+                    } else {
+                        println(
+                            "Warning. Got negated result. Evaluation of such can take a lot of resources." +
+                                    "If you want to enable negation evaluation launch program with '-n' argument"
+                        )
+                    }
+                } else {
+                    res.sortedWith(RankedDocument.rankComparator)
+                        .forEach { println("${documents.path(it.doc)} -- ${it.rating}") }
+                }
+            } catch (e: InterpretationError) {
+                println("Interpretation Error: ${e.message}")
+            } catch (e: SyntaxError) {
+                println("Syntax Error: ${e.message}")
+            } catch (e: UnsupportedOperationException) {
+                println("Unsupported operation: ${e.message}")
+            }
+            print(">>> ")
+            input = readLine()
+        }
+    }
+
     // List of files to index
     val filesSequence = parsed.unspecified.asSequence()
         .map { File(it) }
@@ -193,16 +223,17 @@ fun main(args: Array<String>) {
     when(if (cluster) Mode.CLUSTER else if (mapReduce) Mode.MAP_REDUCE else Mode.LEGACY) {
         Mode.CLUSTER -> {
             val documents = DocumentRegistry()
-            val (mapped) = map(files, documents)
-            val leaders = select(mapped, sqrt(mapped.size.toDouble()).toInt()).map { it.second }
-            val clusters = arrayListOf<ArrayList<DocumentID>>()
-            for (i in leaders.indices) clusters.add(ArrayList())
-            for ((id, vec) in mapped) {
-                val idx = closestIndex(leaders, vec)
-                clusters[idx].add(id)
-            }
-            if (saveLocation != null) {
-                toJSONFile(clusters, saveLocation, ArrayListSerializer(ArrayListSerializer(DocumentID.serializer())))
+            val collection = map(files, documents)
+
+            if (interactive) {
+                val uniteFunc = RankedDocument.Companion::unite
+                val context = EvalContext(
+                    fromID = collection::find,
+                    unite = uniteFactory(uniteFunc, uniteFunc),
+                    cross = uniteFactory(uniteFunc, uniteFunc),
+                    negate = ::negate
+                )
+                startRankedReplSession(context, documents)
             }
         }
         Mode.MAP_REDUCE -> {
@@ -279,37 +310,7 @@ fun main(args: Array<String>) {
                     cross = uniteFactory(uniteFunc, uniteFunc),
                     negate = ::negate
                 )
-                println("Started interactive REPL session.")
-                print(">>> ")
-                var input = readLine()
-                while (input != null && input != ".q") {
-                    try {
-                        val tokens = tokenize(input)
-                        val tree = parse(tokens)
-                        val res = context.eval(tree)
-                        if (res.negated) {
-                            if (shouldNegate) {
-                                TODO("Negation for ranked search is not implemented")
-                            } else {
-                                println(
-                                    "Warning. Got negated result. Evaluation of such can take a lot of resources." +
-                                            "If you want to enable negation evaluation launch program with '-n' argument"
-                                )
-                            }
-                        } else {
-                            res.sortedWith(RankedDocument.rankComparator)
-                                .forEach { println("${documents.path(it.doc)} -- ${it.rating}") }
-                        }
-                    } catch (e: InterpretationError) {
-                        println("Interpretation Error: ${e.message}")
-                    } catch (e: SyntaxError) {
-                        println("Syntax Error: ${e.message}")
-                    } catch (e: UnsupportedOperationException) {
-                        println("Unsupported operation: ${e.message}")
-                    }
-                    print(">>> ")
-                    input = readLine()
-                }
+                startRankedReplSession(context, documents)
             }
 
             dict.close()

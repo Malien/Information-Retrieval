@@ -17,16 +17,15 @@ data class SPIMIMultiEntry(val word: String, val documents: UIntArray) {
     operator fun get(idx: Int) = DocumentWithFlags(documents[idx])
 }
 
-data class RankedDocument(val doc: DocumentID, val rating: Double, val compoundOf: Int): Comparable<RankedDocument> {
+data class RankedDocument(val doc: DocumentID, val rating: Double, val compoundOf: Int = 1): Comparable<RankedDocument> {
     override fun compareTo(other: RankedDocument) = docComparator.compare(this, other)
 
     @ExperimentalUnsignedTypes
     constructor(document: DocumentWithFlags) : this(document.documentID, document.flags.rating,1)
 
     companion object {
-        val docComparator =
-            Comparator.comparing<RankedDocument, DocumentID> { it.doc }
-        val rankComparator =
+        val docComparator: Comparator<RankedDocument> = Comparator.comparing<RankedDocument, DocumentID> { it.doc }
+        val rankComparator: Comparator<RankedDocument> =
             Comparator.comparing<RankedDocument, Double> { it.rating }.reversed()
 
         fun unite(lhs: RankedDocument, rhs: RankedDocument): RankedDocument {
@@ -38,7 +37,6 @@ data class RankedDocument(val doc: DocumentID, val rating: Double, val compoundO
     }
 }
 
-@ExperimentalUnsignedTypes
 typealias RankedDocuments = KeySet<RankedDocument>
 
 @ExperimentalUnsignedTypes

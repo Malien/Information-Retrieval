@@ -4,7 +4,7 @@ import kotlin.math.ln
 
 inline class InvertedDocumentFrequency(val index: HashMap<String, Double> = HashMap()) {
 
-    operator fun get(str: String) = index[str] ?: 0.0
+    operator fun get(str: String) = index[str]
 
     companion object {
         fun fromDocuments(documents: Iterator<DocumentVec>): InvertedDocumentFrequency {

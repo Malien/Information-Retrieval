@@ -9,9 +9,9 @@ import java.io.File
 import java.io.FileReader
 import kotlin.random.Random
 
-fun map(file: File): DocumentVec {
+fun map(file: File, id: DocumentID): DocumentVec {
     val br = BufferedReader(FileReader(file))
-    val vec = DocumentVec()
+    val vec = DocumentVec(id)
     for (token in br.tokenSequence) {
         vec.add(token)
     }
@@ -23,15 +23,16 @@ fun map(file: File): DocumentVec {
 fun map(
     files: List<Document>,
     registry: DocumentRegistry
-): Pair<List<Pair<DocumentID, DocumentVec>>, InvertedDocumentFrequency> {
+): DocumentCollection {
     val mapped = files.map {
-        registry.register(it) to map(it.file)
+        val id = registry.register(it)
+        map(it.file, id)
     }
-    val idf = InvertedDocumentFrequency.fromDocuments(mapped.asSequence().map { it.second }.iterator())
-    for ((_, vec) in mapped) {
-        vec.relateTo(idf)
-    }
-    return mapped to idf
+    val idf = InvertedDocumentFrequency.fromDocuments(mapped.iterator())
+//    for ((_, vec) in mapped) {
+//        vec.relateTo(idf)
+//    }
+    return DocumentCollection(mapped.sortedBy { it.id }, idf)
 }
 
 fun <T> select(list: List<T>, length: Int): List<T> {
@@ -51,3 +52,20 @@ fun closest(leaders: List<DocumentVec>, vec: DocumentVec) = leaders.maxBy { it.c
 @ExperimentalUnsignedTypes
 fun closestIndex(leaders: List<DocumentVec>, vec: DocumentVec) =
     leaders.withIndex().maxBy { (_, leader) -> leader.cos(vec) }?.index ?: -1
+
+fun bm25score(
+    query: Sequence<String>,
+    document: DocumentVec,
+    idf: InvertedDocumentFrequency,
+    averageDocumentLength: Double,
+    k: Double = 1.5,
+    b: Double = 0.75
+) = query.fold(0.0) { acc, term ->
+    val frequency = document.vector[term] ?: return acc
+    val invertedFrequency = idf[term] ?: return acc
+
+    val top = invertedFrequency * frequency * (k + 1)
+    val bottom = frequency + k * (1 - b + b * document.vector.size / averageDocumentLength)
+
+    acc + top / bottom
+}

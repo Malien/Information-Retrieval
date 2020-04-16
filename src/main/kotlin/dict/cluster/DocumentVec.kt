@@ -1,9 +1,10 @@
 package dict.cluster
 
+import dict.DocumentID
 import java.util.*
 import kotlin.math.sqrt
 
-data class DocumentVec(val vector: TreeMap<String, Double> = TreeMap()) {
+data class DocumentVec(val id: DocumentID, val vector: TreeMap<String, Double> = TreeMap()): Comparable<DocumentVec> {
     var words = 0
         private set
 
@@ -83,8 +84,9 @@ data class DocumentVec(val vector: TreeMap<String, Double> = TreeMap()) {
 
     fun relateTo(idf: InvertedDocumentFrequency) {
         for (entry in vector) {
-            entry.setValue(idf[entry.key] * entry.value)
+            entry.setValue(idf[entry.key] ?: 0.0 * entry.value)
         }
     }
 
+    override fun compareTo(other: DocumentVec) = id.compareTo(other.id)
 }
